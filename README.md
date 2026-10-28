@@ -1,4 +1,4 @@
-# GridPilot — Smart Microgrid Demand Forecasting on Zoho Catalyst (HackSphere 3.0 · Team NO SUS)
+# GridPilot — Smart Microgrid Demand Forecasting on Zoho Catalyst (HackSphere 3.0 · Team QUANTIX)
 
 ## What it does
 
