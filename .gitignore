@@ -1,0 +1,11 @@
+appsail/_vendor/
+.catalyst/
+.catalystrc
+docs/deck/.deck.build.html
+.env
+.env.*
+predictions.csv
+*.pyc
+__pycache__/
+.venv/
+venv/

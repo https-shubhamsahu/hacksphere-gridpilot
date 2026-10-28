@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GridPilot · Microgrid Demand Forecaster</title>
+  <meta name="description" content="GridPilot forecasts 24-hour microgrid demand and switches between renewable storage and the main grid. Built on Zoho Catalyst by team NO SUS.">
+  <meta name="theme-color" content="#0B0F14">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css?v=3">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
+  <script src="app.js?v=3" defer></script>
+</head>
+<body>
+  <!-- SVG icon sprite -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+    <defs>
+      <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 2 4 14h7l-1 8 9-12h-7z" fill="currentColor" stroke="none"/></symbol>
+      <symbol id="i-battery" viewBox="0 0 24 24"><rect x="2.5" y="7" width="17" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M21.5 10.5v3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><rect x="5" y="9.5" width="3" height="5" rx=".6" fill="currentColor"/><rect x="9.25" y="9.5" width="3" height="5" rx=".6" fill="currentColor"/><rect x="13.5" y="9.5" width="3" height="5" rx=".6" fill="currentColor" opacity=".45"/></symbol>
+      <symbol id="i-pylon" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"><path d="M12 2 7 22M12 2l5 20"/><path d="M4 7h16M6 11.5h12"/><path d="M9.2 13.5 15.6 18M14.8 13.5 8.4 18"/><path d="M4 7v2M20 7v2"/></g></symbol>
+      <symbol id="i-alert" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 2.4 17.6A2 2 0 0 0 4.1 20.6h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4.5M12 17h.01"/></g></symbol>
+      <symbol id="i-check" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m8 12.5 2.7 2.7L16.5 9.5"/></g></symbol>
+      <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.5v13l10.5-6.5z" fill="currentColor"/></symbol>
+      <symbol id="i-pause" viewBox="0 0 24 24"><rect x="6.5" y="5" width="4" height="14" rx="1" fill="currentColor"/><rect x="13.5" y="5" width="4" height="14" rx="1" fill="currentColor"/></symbol>
+      <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+      <symbol id="i-upload" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V4M7.5 8.5 12 4l4.5 4.5"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></g></symbol>
+      <symbol id="i-download" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7.5 10.5 12 15l4.5-4.5"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></g></symbol>
+      <symbol id="i-sun" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"/></g></symbol>
+      <symbol id="i-thermo" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M14 14.8V5a2 2 0 0 0-4 0v9.8a4 4 0 1 0 4 0z"/><path d="M12 9v7"/></g></symbol>
+      <symbol id="i-switch" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h13l-3.5-3.5M20 16H7l3.5 3.5"/></g></symbol>
+      <symbol id="i-pulse" viewBox="0 0 24 24"><path d="M3 12h4l2.5-6 5 12 2.5-6H21" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-table" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9.5h18M3 15h18M9 9.5V20"/></g></symbol>
+      <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+      <symbol id="i-trash" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9.5 7V4.5h5V7M6.5 7l1 13h9l1-13"/></g></symbol>
+      <symbol id="i-chev" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-db" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8"><ellipse cx="12" cy="5.5" rx="7.5" ry="2.8"/><path d="M4.5 5.5v13c0 1.5 3.4 2.8 7.5 2.8s7.5-1.3 7.5-2.8v-13M4.5 12c0 1.5 3.4 2.8 7.5 2.8s7.5-1.3 7.5-2.8"/></g></symbol>
+      <symbol id="i-gauge" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 18a9 9 0 1 1 16 0"/><path d="M12 13.5 16 9"/></g></symbol>
+    </defs>
+  </svg>
+
+  <a class="skip-link" href="#main">Skip to dashboard</a>
+  <div class="busy-bar" aria-hidden="true"></div>
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true"><svg><use href="#i-bolt"/></svg></span>
+      <div class="brand-text">
+        <span class="brand-name">GridPilot</span>
+        <span class="brand-by">by <span class="wordmark">NO SUS<span class="wm-stop" aria-hidden="true"></span></span></span>
+      </div>
+      <span class="brand-tag">Microgrid demand forecaster</span>
+    </div>
+    <div class="topbar-right">
+      <div class="clock" aria-label="Current time">
+        <span class="clock-time mono" id="clock-time">--:--:--</span>
+        <span class="clock-date" id="clock-date">&nbsp;</span>
+      </div>
+      <div class="status-pill is-pending" id="api-pill" role="status" aria-live="polite">
+        <span class="dot" aria-hidden="true"></span>
+        <span class="pill-main" id="api-pill-main">Connecting to API</span>
+        <span class="pill-sub mono" id="api-pill-sub"></span>
+      </div>
+    </div>
+  </header>
+
+  <main id="main" class="wrap">
+    <div id="banners" class="banners" aria-live="assertive"></div>
+
+    <!-- Live status strip -->
+    <section class="card strip" aria-labelledby="strip-title">
+      <div class="strip-head">
+        <div>
+          <h1 id="strip-title" class="eyebrow">Grid state <span class="mono" id="strip-hour">--:--</span></h1>
+          <p class="meta" id="run-meta">Waiting for forecast</p>
+        </div>
+        <div class="scrubber">
+          <button class="btn icon-btn play-btn" id="play-btn" type="button" aria-label="Start live replay" aria-pressed="false">
+            <svg class="ic"><use href="#i-play"/></svg>
+          </button>
+          <div class="scrub-track">
+            <label for="hour-range" class="sr-only">Select forecast hour</label>
+            <input type="range" id="hour-range" min="0" max="23" value="0" step="1">
+            <div class="scrub-ticks mono" aria-hidden="true"><span>00</span><span>06</span><span>12</span><span>18</span><span>23</span></div>
+          </div>
+          <span class="live-tag" id="live-tag"><span class="live-dot" aria-hidden="true"></span>Replay</span>
+        </div>
+      </div>
+
+      <div class="strip-grid">
+        <div class="tile mode-tile" id="mode-tile">
+          <span class="tile-label">Active source</span>
+          <div class="mode-badge" id="mode-badge">
+            <span class="mode-icon"><svg><use href="#i-pylon"/></svg></span>
+            <span class="mode-text"><strong id="mode-name">--</strong><small id="mode-code" class="mono">--</small></span>
+          </div>
+          <span class="tile-foot" id="mode-since">&nbsp;</span>
+        </div>
+
+        <div class="tile">
+          <span class="tile-label">Predicted demand</span>
+          <div class="big-num"><span class="mono" id="demand-now">--</span><span class="unit">kW</span></div>
+          <div class="load-bar" aria-hidden="true">
+            <div class="load-fill" id="load-fill"></div>
+            <span class="load-mark m160" title="160 kW storage threshold"></span>
+            <span class="load-mark m200" title="200 kW overload limit"></span>
+          </div>
+          <span class="tile-foot" id="demand-delta">&nbsp;</span>
+        </div>
+
+        <div class="tile soc-tile">
+          <span class="tile-label">Battery state of charge</span>
+          <div class="soc-wrap">
+            <svg class="soc-ring" viewBox="0 0 80 80" role="img" aria-labelledby="soc-now">
+              <circle cx="40" cy="40" r="32" class="soc-bg"/>
+              <circle cx="40" cy="40" r="32" class="soc-fg" id="soc-arc"/>
+            </svg>
+            <div class="soc-text">
+              <div class="big-num"><span class="mono" id="soc-now">--</span><span class="unit">%</span></div>
+              <span class="tile-foot mono" id="soc-kwh">&nbsp;</span>
+            </div>
+          </div>
+          <span class="tile-foot" id="solar-now">&nbsp;</span>
+        </div>
+
+        <div class="tile overload-tile" id="overload-tile">
+          <span class="tile-label">Overload state</span>
+          <div class="ol-state" id="ol-state"><svg class="ic"><use href="#i-check"/></svg><span>--</span></div>
+          <span class="tile-foot mono" id="ol-margin">&nbsp;</span>
+        </div>
+      </div>
+
+      <div class="reasons-row">
+        <span class="reasons-label">Why this mode</span>
+        <ul class="reasons" id="reasons"><li class="muted">No forecast loaded</li></ul>
+      </div>
+    </section>
+
+    <!-- 24h timeline -->
+    <section class="card" aria-labelledby="tl-title">
+      <div class="card-head">
+        <h2 id="tl-title">24-hour dispatch timeline</h2>
+        <div class="legend-chips">
+          <span class="chip chip-storage"><i></i>Renewable storage</span>
+          <span class="chip chip-grid"><i></i>Main grid</span>
+          <span class="chip chip-alert"><i></i>Overload</span>
+        </div>
+      </div>
+      <div class="timeline" id="timeline" role="listbox" aria-label="Forecast hours"></div>
+      <div class="tl-tip" id="tl-tip" role="tooltip" hidden></div>
+    </section>
+
+    <!-- KPIs -->
+    <section class="kpis" aria-label="Forecast summary">
+      <div class="card kpi"><span class="kpi-label">Peak demand</span><div class="kpi-val"><span class="mono" id="k-peak">--</span><span class="unit">kW</span></div><span class="kpi-sub" id="k-peak-hour">&nbsp;</span></div>
+      <div class="card kpi"><span class="kpi-label">Energy, 24 h</span><div class="kpi-val"><span class="mono" id="k-energy">--</span><span class="unit">kWh</span></div><span class="kpi-sub" id="k-avg">&nbsp;</span></div>
+      <div class="card kpi"><span class="kpi-label">Storage / grid hours</span><div class="kpi-val"><span class="mono t-storage" id="k-storage">--</span><span class="sep">/</span><span class="mono t-grid" id="k-grid">--</span><span class="unit">h</span></div><div class="split-bar" aria-hidden="true"><span id="k-split"></span></div></div>
+      <div class="card kpi"><span class="kpi-label">Source transitions</span><div class="kpi-val"><span class="mono" id="k-trans">--</span></div><span class="kpi-sub">grid switch events</span></div>
+      <div class="card kpi" id="kpi-overload"><span class="kpi-label">Overload hours</span><div class="kpi-val"><span class="mono" id="k-over">--</span><span class="unit">h</span></div><span class="kpi-sub">demand at or above 200 kW</span></div>
+      <div class="card kpi" id="kpi-soc"><span class="kpi-label">Minimum SoC</span><div class="kpi-val"><span class="mono" id="k-soc">--</span><span class="unit">%</span></div><span class="kpi-sub">500 kWh battery bank</span></div>
+    </section>
+
+    <!-- Main chart + rules/signals -->
+    <div class="grid-2-1">
+      <section class="card chart-card" aria-labelledby="load-title">
+        <div class="card-head">
+          <h2 id="load-title">Predicted load curve</h2>
+          <div class="legend-chips">
+            <span class="chip chip-line-storage"><i></i>Load on storage</span>
+            <span class="chip chip-line-grid"><i></i>Load on grid</span>
+            <span class="chip chip-dash-teal"><i></i>160 kW threshold</span>
+            <span class="chip chip-dash-red"><i></i>200 kW overload</span>
+            <span class="chip chip-hatch"><i></i>18:00–22:00 window</span>
+          </div>
+        </div>
+        <div class="chart-box tall"><canvas id="chart-load" aria-label="Predicted demand over 24 hours with switching thresholds" role="img"></canvas></div>
+      </section>
+
+      <div class="stack">
+        <section class="card rules" aria-labelledby="rules-title">
+          <div class="card-head"><h2 id="rules-title">Switching rules</h2></div>
+          <ul class="rule-list">
+            <li><span class="rule-badge b-storage"><svg><use href="#i-battery"/></svg></span><div><strong>Renewable storage</strong><span>when demand &gt; <b class="mono">160 kW</b> or the hour is in <b class="mono">18:00–22:00</b></span></div></li>
+            <li><span class="rule-badge b-grid"><svg><use href="#i-pylon"/></svg></span><div><strong>Main grid</strong><span>at every other hour</span></div></li>
+            <li><span class="rule-badge b-alert"><svg><use href="#i-alert"/></svg></span><div><strong>Critical overload alert</strong><span>when demand &ge; <b class="mono">200 kW</b>, in either mode</span></div></li>
+          </ul>
+          <p class="rule-note mono">Battery 500 kWh · starts at 80% SoC</p>
+        </section>
+
+        <section class="card log-card" aria-labelledby="sig-title">
+          <div class="card-head"><h2 id="sig-title">Dispatch signals</h2><span class="count mono" id="sig-count">0</span></div>
+          <ol class="log signals" id="signals"><li class="empty">No dispatch events yet</li></ol>
+        </section>
+      </div>
+    </div>
+
+    <!-- Secondary charts -->
+    <div class="grid-2-1">
+      <section class="card chart-card" aria-labelledby="soc-title">
+        <div class="card-head">
+          <h2 id="soc-title">Battery SoC and solar generation</h2>
+          <div class="legend-chips">
+            <span class="chip chip-line-storage"><i></i>SoC %</span>
+            <span class="chip chip-solar"><i></i>Solar kW</span>
+            <span class="chip chip-dash-amber"><i></i>20% reserve</span>
+          </div>
+        </div>
+        <div class="chart-box"><canvas id="chart-soc" aria-label="Battery state of charge and solar generation over 24 hours" role="img"></canvas></div>
+      </section>
+      <section class="card chart-card" aria-labelledby="temp-title">
+        <div class="card-head"><h2 id="temp-title">Temperature vs demand</h2></div>
+        <div class="chart-box"><canvas id="chart-temp" aria-label="Scatter of ambient temperature against predicted demand" role="img"></canvas></div>
+      </section>
+    </div>
+
+    <!-- Ingestion + cleaning/logs -->
+    <div class="grid-2-1 ingest-row">
+      <section class="card" aria-labelledby="ing-title">
+        <div class="card-head">
+          <h2 id="ing-title">Data ingestion</h2>
+          <button class="btn ghost sm" id="btn-sample" type="button"><svg class="ic"><use href="#i-db"/></svg>Load sample 24 h</button>
+        </div>
+        <div class="tabs" role="tablist" aria-label="Input method">
+          <button class="tab is-active" role="tab" id="tab-upload" aria-selected="true" aria-controls="panel-upload" type="button"><svg class="ic"><use href="#i-upload"/></svg>Upload CSV</button>
+          <button class="tab" role="tab" id="tab-manual" aria-selected="false" aria-controls="panel-manual" tabindex="-1" type="button"><svg class="ic"><use href="#i-table"/></svg>Manual entry</button>
+        </div>
+
+        <div class="tab-panel" id="panel-upload" role="tabpanel" aria-labelledby="tab-upload">
+          <label class="dropzone" id="dropzone" for="file-input" tabindex="0">
+            <svg class="dz-ic"><use href="#i-upload"/></svg>
+            <span class="dz-title">Drop a CSV here or <u>browse</u></span>
+            <span class="dz-sub">Columns: timestamp, ambient_temp_c, humidity_pct, solar_irradiance_wm2 · hourly rows</span>
+            <span class="dz-file mono" id="dz-file"></span>
+            <input type="file" id="file-input" accept=".csv,text/csv" class="sr-only">
+          </label>
+          <div class="row-actions">
+            <button class="btn ghost sm" id="btn-template" type="button"><svg class="ic"><use href="#i-download"/></svg>Download template CSV</button>
+          </div>
+        </div>
+
+        <div class="tab-panel" id="panel-manual" role="tabpanel" aria-labelledby="tab-manual" hidden>
+          <div class="manual-scroll">
+            <table class="manual" id="manual-table">
+              <thead><tr><th scope="col">Timestamp</th><th scope="col">Temp °C</th><th scope="col">Humidity %</th><th scope="col">Irradiance W/m²</th><th scope="col"><span class="sr-only">Remove</span></th></tr></thead>
+              <tbody id="manual-body"></tbody>
+            </table>
+          </div>
+          <div class="row-actions">
+            <button class="btn ghost sm" id="btn-add" type="button"><svg class="ic"><use href="#i-plus"/></svg>Add hour</button>
+            <button class="btn ghost sm" id="btn-clear" type="button"><svg class="ic"><use href="#i-trash"/></svg>Clear</button>
+            <span class="spacer"></span>
+            <span class="meta mono" id="manual-count">0 rows</span>
+            <button class="btn primary" id="btn-run" type="button"><svg class="ic"><use href="#i-pulse"/></svg>Run forecast</button>
+          </div>
+        </div>
+      </section>
+
+      <div class="stack">
+        <section class="card" aria-labelledby="clean-title">
+          <div class="card-head"><h2 id="clean-title">Cleaning report</h2><span class="meta mono" id="clean-src"></span></div>
+          <div id="cleaning" class="cleaning"><p class="muted">Runs after every forecast.</p></div>
+        </section>
+        <section class="card log-card" aria-labelledby="sys-title">
+          <div class="card-head"><h2 id="sys-title">System log</h2><span class="meta mono" id="sys-updated">polling 10 s</span></div>
+          <ol class="log syslog" id="syslog"><li class="empty">Waiting for events</li></ol>
+        </section>
+      </div>
+    </div>
+
+    <!-- Forecast table -->
+    <section class="card">
+      <details id="table-details">
+        <summary>
+          <span class="sum-left"><svg class="ic chev"><use href="#i-chev"/></svg><span class="h2">Hourly forecast table</span><span class="meta mono" id="table-count"></span></span>
+          <button class="btn ghost sm" id="btn-export" type="button"><svg class="ic"><use href="#i-download"/></svg>Export CSV</button>
+        </summary>
+        <div class="table-scroll">
+          <table class="ftable">
+            <thead>
+              <tr>
+                <th scope="col">Hour</th><th scope="col" class="num">Temp °C</th><th scope="col" class="num">Humidity %</th><th scope="col" class="num">Irradiance W/m²</th><th scope="col" class="num">Solar kW</th><th scope="col" class="num">Demand kW</th><th scope="col">Mode</th><th scope="col" class="num">SoC %</th><th scope="col">Alert</th><th scope="col">Reasons</th>
+              </tr>
+            </thead>
+            <tbody id="ftable-body"><tr><td colspan="10" class="muted">No forecast yet</td></tr></tbody>
+          </table>
+        </div>
+      </details>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <span>HackSphere 3.0 · Team <span class="wordmark sm">NO SUS<span class="wm-stop" aria-hidden="true"></span></span> · Built on Zoho Catalyst (AppSail + QuickML)</span>
+  </footer>
+
+  <div class="toasts" id="toasts" aria-live="polite"></div>
+</body>
+</html>

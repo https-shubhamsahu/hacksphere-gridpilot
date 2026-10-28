@@ -1,0 +1,541 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>GridPilot · NO SUS · HackSphere 3.0</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700;800&display=swap');
+
+@page { size: 1920px 1080px; margin: 0; }
+
+:root {
+  --bg: #0B0F14;
+  --card: #121821;
+  --card2: #18202B;
+  --line: #243040;
+  --text: #E6EDF3;
+  --muted: #8B98A5;
+  --teal: #2DD4BF;
+  --blue: #60A5FA;
+  --red: #F87171;
+  --amber: #FBBF24;
+  --sans: 'Inter', 'Inter Variable', 'Noto Sans', 'DejaVu Sans', 'Helvetica Neue', Arial, sans-serif;
+  --mono: 'JetBrains Mono', 'JetBrainsMono Nerd Font Mono', 'JetBrainsMono NFM', 'DejaVu Sans Mono', 'Liberation Mono', monospace;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: var(--bg); color: var(--text); font-family: var(--sans);
+  -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+body { width: 1920px; }
+
+.slide {
+  position: relative; width: 1920px; height: 1080px; overflow: hidden;
+  padding: 100px 120px 120px; background: var(--bg);
+  page-break-after: always; break-after: page;
+  display: flex; flex-direction: column;
+}
+.slide:last-child { page-break-after: auto; break-after: auto; }
+
+/* chrome */
+.kicker { font-family: var(--mono); font-size: 26px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); margin-bottom: 22px; }
+.kicker b { color: var(--teal); font-weight: 700; }
+h1 { font-size: 80px; line-height: 1.04; font-weight: 800; letter-spacing: -0.025em; }
+h1 .dim { color: var(--muted); }
+.lead { font-size: 36px; line-height: 1.35; color: var(--muted); margin-top: 24px; max-width: 1400px; }
+.foot { position: absolute; left: 120px; right: 120px; bottom: 44px; display: flex; justify-content: space-between; align-items: center;
+  font-family: var(--mono); font-size: 22px; color: #5B6875; letter-spacing: .06em; }
+.mono { font-family: var(--mono); }
+.teal { color: var(--teal); } .blue { color: var(--blue); } .red { color: var(--red); } .amber { color: var(--amber); } .muted { color: var(--muted); }
+
+/* wordmark */
+.wm { display: inline-flex; align-items: flex-end; gap: .14em; font-family: var(--sans); font-weight: 900; color: #fff; letter-spacing: -0.01em; line-height: 1; }
+.wm i { display: inline-block; width: .3em; height: .3em; background: #808080; margin-bottom: .08em; }
+
+/* cards */
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 24px; padding: 40px; }
+.grid { display: grid; gap: 32px; }
+.pill { display: inline-flex; align-items: center; gap: 12px; font-family: var(--mono); font-size: 24px; padding: 10px 20px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); color: var(--text); }
+.dot { width: 14px; height: 14px; border-radius: 50%; display: inline-block; flex: none; }
+
+/* ---------- 1 title ---------- */
+.s-title { padding-top: 90px; }
+.s-title .wm { font-size: 54px; }
+.s-title .name { font-size: 196px; font-weight: 900; letter-spacing: -0.045em; line-height: .95; margin-top: 150px; }
+.s-title .name span { color: var(--teal); }
+.s-title .tag { font-size: 64px; font-weight: 700; line-height: 1.12; letter-spacing: -0.02em; margin-top: 36px; max-width: 1240px; }
+.s-title .tag .dim { color: var(--muted); }
+.s-title .meta { position: absolute; left: 120px; right: 120px; bottom: 96px; display: flex; gap: 28px; align-items: center; flex-wrap: wrap; }
+.s-title .meta .event { font-size: 32px; color: var(--muted); font-weight: 500; }
+.s-title .meta .event b { color: var(--text); font-weight: 700; }
+.s-title .live { font-family: var(--mono); font-size: 30px; color: var(--teal); word-break: break-all; }
+.bgcurve { position: absolute; right: 0; top: 150px; width: 860px; height: 500px; opacity: .9; }
+
+/* ---------- 2 problem ---------- */
+.prob { display: grid; grid-template-columns: 640px 1fr; gap: 64px; margin-top: 44px; height: 610px; }
+.stat { padding: 26px 36px; }
+.stat + .stat { margin-top: 20px; }
+.stat .n { font-family: var(--mono); font-size: 62px; font-weight: 800; line-height: 1; letter-spacing: -0.02em; }
+.stat .l { font-size: 28px; color: var(--muted); margin-top: 8px; line-height: 1.3; }
+.chartcard { padding: 30px 30px 20px; display: flex; flex-direction: column; }
+.chartcard svg { width: 100%; height: 100%; }
+
+/* ---------- 3 flow ---------- */
+.flow { display: flex; align-items: stretch; margin-top: 90px; gap: 0; }
+.step { flex: 1; background: var(--card); border: 1px solid var(--line); border-radius: 24px; padding: 40px 32px; display: flex; flex-direction: column; min-height: 440px; }
+.step .no { font-family: var(--mono); font-size: 26px; color: var(--muted); }
+.step .t { font-size: 44px; font-weight: 800; margin-top: 18px; letter-spacing: -0.02em; line-height: 1.08; }
+.step .d { font-size: 28px; color: var(--muted); margin-top: 18px; line-height: 1.35; }
+.step .bar { height: 6px; border-radius: 3px; margin-top: auto; }
+.arrow { width: 64px; flex: none; display: flex; align-items: center; justify-content: center; }
+.flownote { margin-top: 56px; font-size: 34px; color: var(--muted); }
+.flownote b { color: var(--text); }
+
+/* ---------- 4 architecture ---------- */
+.arch { position: relative; margin-top: 40px; height: 640px; }
+.arch svg.wires { position: absolute; inset: 0; width: 100%; height: 100%; }
+.node { position: absolute; background: var(--card); border: 1px solid var(--line); border-radius: 24px; padding: 30px 34px; }
+.node .h { font-family: var(--mono); font-size: 22px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+.node .t { font-size: 42px; font-weight: 800; margin-top: 8px; letter-spacing: -0.02em; }
+.node ul { list-style: none; margin-top: 18px; }
+.node li { font-size: 26px; color: var(--muted); line-height: 1.5; }
+.node li code, .node code { font-family: var(--mono); color: var(--text); font-size: 24px; }
+.node.hi { border-color: rgba(45,212,191,.55); box-shadow: 0 0 0 1px rgba(45,212,191,.25), 0 0 80px rgba(45,212,191,.08); }
+.wirelabel { position: absolute; font-family: var(--mono); font-size: 21px; color: var(--muted); background: var(--bg); padding: 4px 10px; }
+.chips { display: flex; gap: 20px; margin-top: 8px; flex-wrap: wrap; }
+
+/* ---------- 5 data ---------- */
+.data { display: grid; grid-template-columns: 1.15fr 1fr 1fr; gap: 32px; margin-top: 52px; }
+.data h3 { font-family: var(--mono); font-size: 22px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); font-weight: 500; margin-bottom: 26px; }
+.schema div { font-family: var(--mono); font-size: 27px; padding: 13px 0; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; gap: 12px; }
+.schema div span { color: var(--muted); font-size: 22px; }
+.schema .tgt { color: var(--teal); border-bottom: none; padding-top: 22px; }
+.rules li { list-style: none; font-size: 29px; line-height: 1.3; padding: 13px 0; border-bottom: 1px solid var(--line); }
+.rules li:last-child { border-bottom: none; }
+.rules li small { display: block; font-size: 23px; color: var(--muted); margin-top: 4px; }
+.bignum { font-family: var(--mono); font-size: 120px; font-weight: 800; line-height: 1; letter-spacing: -0.03em; }
+
+/* ---------- 6 model ---------- */
+.modelname { font-family: var(--mono); font-size: 60px; font-weight: 800; color: var(--teal); margin-top: 18px; letter-spacing: -0.02em; line-height: 1.1; word-break: break-word; }
+.metrics { display: grid; grid-template-columns: 1fr 1fr 1.25fr; gap: 32px; margin-top: 48px; }
+.metric .k { font-family: var(--mono); font-size: 24px; letter-spacing: .12em; color: var(--muted); }
+.metric .v { font-family: var(--mono); font-size: 128px; font-weight: 800; line-height: 1; margin-top: 18px; letter-spacing: -0.04em; white-space: nowrap; }
+.metric .v small { font-size: 40px; color: var(--muted); font-weight: 500; letter-spacing: 0; margin-left: 10px; }
+.split { margin-top: 26px; }
+.split .bar { display: flex; height: 64px; border-radius: 14px; overflow: hidden; font-family: var(--mono); font-size: 24px; }
+.split .bar div { display: flex; align-items: center; padding: 0 20px; }
+.split .lbl { font-size: 26px; color: var(--muted); margin-top: 18px; line-height: 1.35; }
+.why { margin-top: 32px; display: grid; grid-template-columns: 1fr 1fr; gap: 32px; }
+.why .card { padding: 34px 40px; }
+.why .t { font-size: 36px; font-weight: 800; letter-spacing: -0.01em; }
+.why .d { font-size: 28px; color: var(--muted); margin-top: 12px; line-height: 1.35; }
+
+/* ---------- 7 controller ---------- */
+.ctl { display: grid; grid-template-columns: 1.05fr 1fr; gap: 40px; margin-top: 52px; }
+.rule { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 24px; padding: 32px 36px; border-radius: 22px; background: var(--card); border: 1px solid var(--line); border-left-width: 10px; }
+.rule + .rule { margin-top: 22px; }
+.rule .c { font-size: 32px; line-height: 1.3; }
+.rule .c .mono { font-size: 30px; }
+.rule .m { font-size: 30px; font-weight: 800; text-align: right; }
+.tests { padding: 34px 40px; }
+.tests h3 { font-family: var(--mono); font-size: 22px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); font-weight: 500; margin-bottom: 14px; }
+.tests table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 28px; }
+.tests td { padding: 19px 0; border-bottom: 1px solid var(--line); }
+.tests tr:last-child td { border-bottom: none; }
+.tests td.r { text-align: right; width: 70px; }
+.tests .ok { display: inline-flex; vertical-align: middle; }
+
+/* ---------- 8 dashboard ---------- */
+.dash { display: grid; grid-template-columns: 980px 280px 1fr; gap: 36px; margin-top: 44px; align-items: start; }
+.shot { position: relative; border-radius: 22px; overflow: hidden; background: var(--card); border: 1px solid var(--line); }
+.shot img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: top center; }
+.shot .ph { display: none; position: absolute; inset: 0; flex-direction: column; align-items: center; justify-content: center; gap: 16px;
+  background: repeating-linear-gradient(135deg, #121821 0 22px, #141B25 22px 44px); color: var(--muted); font-family: var(--mono); font-size: 24px; text-align: center; padding: 20px; }
+.shot .ph .frame { width: 64px; height: 44px; border: 3px solid #3A4757; border-radius: 8px; }
+.shot.missing img { display: none; }
+.shot.missing .ph { display: flex; }
+.shot.desk { height: 600px; }
+.shot.mob { height: 600px; border-radius: 34px; }
+.cap { font-family: var(--mono); font-size: 22px; color: var(--muted); margin-top: 16px; }
+.callouts { list-style: none; }
+.callouts li { display: flex; gap: 18px; align-items: flex-start; font-size: 30px; line-height: 1.3; padding: 16px 0; border-bottom: 1px solid var(--line); }
+.callouts li:last-child { border-bottom: none; }
+.callouts li .dot { margin-top: 10px; }
+.callouts li small { display: block; color: var(--muted); font-size: 23px; margin-top: 2px; }
+
+/* ---------- 9 judge ---------- */
+.judge { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-top: 52px; }
+.contract li { list-style: none; display: grid; grid-template-columns: 60px 1fr; gap: 10px; padding: 20px 0; border-bottom: 1px solid var(--line); }
+.contract li:last-child { border-bottom: none; }
+.contract .i { font-family: var(--mono); font-size: 26px; color: var(--teal); padding-top: 4px; }
+.contract .t { font-size: 34px; font-weight: 700; }
+.contract .d { font-size: 26px; color: var(--muted); margin-top: 4px; line-height: 1.3; }
+.term { background: #070A0E; border: 1px solid var(--line); border-radius: 22px; overflow: hidden; }
+.term .tb { display: flex; gap: 10px; padding: 18px 22px; border-bottom: 1px solid var(--line); }
+.term .tb i { width: 14px; height: 14px; border-radius: 50%; background: #2A3542; }
+.term pre { font-family: var(--mono); font-size: 25px; line-height: 1.5; padding: 20px 30px; color: var(--text); white-space: pre-wrap; }
+.term .p { color: var(--muted); }
+.term .s { color: var(--teal); font-weight: 800; font-size: 36px; }
+.shot.qml { height: 270px; margin-top: 24px; }
+.contract li { padding: 16px 0; }
+.checks { margin-top: 30px; display: grid; gap: 18px; }
+.checks div { display: flex; gap: 18px; align-items: center; font-size: 30px; }
+
+/* ---------- 10 next ---------- */
+.next { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; margin-top: 56px; }
+.next .card { padding: 40px 44px; min-height: 270px; }
+.next .n { font-family: var(--mono); font-size: 24px; color: var(--muted); }
+.next .t { font-size: 46px; font-weight: 800; letter-spacing: -0.02em; margin-top: 14px; }
+.next .d { font-size: 29px; color: var(--muted); margin-top: 14px; line-height: 1.35; }
+.next .tag { font-family: var(--mono); font-size: 22px; color: var(--teal); margin-top: 18px; }
+
+/* ---------- 11 team ---------- */
+.s-team .wm { font-size: 150px; margin-top: 70px; }
+.s-team .who { margin-top: 70px; font-size: 52px; font-weight: 800; letter-spacing: -0.02em; }
+.s-team .role { font-size: 34px; color: var(--muted); margin-top: 14px; }
+.links { margin-top: 70px; display: grid; gap: 24px; }
+.links div { display: grid; grid-template-columns: 240px 1fr; align-items: baseline; font-size: 34px; }
+.links div span:first-child { font-family: var(--mono); font-size: 24px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+.links div span:last-child { font-family: var(--mono); color: var(--text); word-break: break-all; }
+.thanks { position: absolute; right: 120px; bottom: 110px; font-size: 96px; font-weight: 900; letter-spacing: -0.03em; color: var(--teal); }
+</style>
+</head>
+<body>
+
+<!-- ===================== 1 TITLE ===================== -->
+<section class="slide s-title">
+  <svg class="bgcurve" viewBox="0 0 1100 640" aria-hidden="true">
+    <defs>
+      <linearGradient id="fillT" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="#2DD4BF" stop-opacity=".18"/>
+        <stop offset="1" stop-color="#2DD4BF" stop-opacity="0"/>
+      </linearGradient>
+    </defs>
+    <line x1="0" y1="250" x2="1100" y2="250" stroke="#F87171" stroke-width="2" stroke-dasharray="10 10" opacity=".55"/>
+    <line x1="0" y1="350" x2="1100" y2="350" stroke="#FBBF24" stroke-width="2" stroke-dasharray="10 10" opacity=".45"/>
+    <path d="M0,470 C80,480 140,500 210,480 C290,455 330,400 420,380 C510,360 560,400 640,330 C700,280 740,200 800,190 C860,182 900,260 960,330 C1010,390 1060,430 1100,440 L1100,640 L0,640 Z" fill="url(#fillT)"/>
+    <path d="M0,470 C80,480 140,500 210,480 C290,455 330,400 420,380 C510,360 560,400 640,330 C700,280 740,200 800,190 C860,182 900,260 960,330 C1010,390 1060,430 1100,440" fill="none" stroke="#2DD4BF" stroke-width="5" opacity=".85"/>
+    <text x="1090" y="238" text-anchor="end" font-family="JetBrains Mono, monospace" font-size="22" fill="#F87171" opacity=".8">200 kW</text>
+    <text x="1090" y="338" text-anchor="end" font-family="JetBrains Mono, monospace" font-size="22" fill="#FBBF24" opacity=".7">160 kW</text>
+  </svg>
+  <div class="wm">NO SUS<i></i></div>
+  <div class="name">Grid<span>Pilot</span></div>
+  <div class="tag">Forecast tomorrow's load.<br><span class="dim">Switch before it spikes.</span></div>
+  <div class="meta">
+    <div class="event"><b>HackSphere 3.0</b> · BITS Pilani Hyderabad · Team NO SUS</div>
+    <div class="live">live app&nbsp; {{APP_URL}}</div>
+  </div>
+</section>
+
+<!-- ===================== 2 PROBLEM ===================== -->
+<section class="slide">
+  <div class="kicker"><b>01</b> · Problem</div>
+  <h1>Every hour, a microgrid must pick:<br><span class="blue">main grid</span> <span class="dim">or</span> <span class="teal">battery</span>.</h1>
+  <div class="prob">
+    <div>
+      <div class="card stat"><div class="n">24<span class="muted" style="font-size:40px"> / day</span></div><div class="l">source decisions, one per hour</div></div>
+      <div class="card stat"><div class="n amber">18–22 h</div><div class="l">evening peak, every single day</div></div>
+      <div class="card stat"><div class="n red">≥ 200 kW</div><div class="l">heat waves push load into overload</div></div>
+    </div>
+    <div class="card chartcard">
+      <svg viewBox="0 0 1000 560" aria-label="Load curve with late manual switch">
+        <rect x="560" y="20" width="220" height="470" fill="#FBBF24" opacity=".07"/>
+        <text x="670" y="52" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="22" fill="#FBBF24">18–22 h</text>
+        <line x1="40" y1="150" x2="980" y2="150" stroke="#F87171" stroke-width="2" stroke-dasharray="10 8"/>
+        <line x1="40" y1="250" x2="980" y2="250" stroke="#FBBF24" stroke-width="2" stroke-dasharray="10 8"/>
+        <text x="975" y="138" text-anchor="end" font-family="JetBrains Mono, monospace" font-size="22" fill="#F87171">200 kW</text>
+        <text x="975" y="238" text-anchor="end" font-family="JetBrains Mono, monospace" font-size="22" fill="#FBBF24">160 kW</text>
+        <path d="M40,410 C120,420 180,440 250,420 C330,395 380,330 450,310 C510,292 540,260 590,200 C630,150 660,120 700,118 C750,116 780,200 820,280 C860,350 920,390 980,400" fill="none" stroke="#E6EDF3" stroke-width="5"/>
+        <!-- manual switch -->
+        <line x1="700" y1="70" x2="700" y2="490" stroke="#F87171" stroke-width="3"/>
+        <circle cx="700" cy="118" r="10" fill="#F87171"/>
+        <text x="712" y="100" font-family="Inter, sans-serif" font-size="26" font-weight="700" fill="#F87171">manual switch: late</text>
+        <!-- gridpilot switch -->
+        <line x1="540" y1="70" x2="540" y2="490" stroke="#2DD4BF" stroke-width="3" stroke-dasharray="4 6"/>
+        <circle cx="540" cy="266" r="10" fill="#2DD4BF"/>
+        <text x="528" y="100" text-anchor="end" font-family="Inter, sans-serif" font-size="26" font-weight="700" fill="#2DD4BF">forecast switch: ahead</text>
+        <line x1="40" y1="490" x2="980" y2="490" stroke="#243040" stroke-width="2"/>
+        <text x="40" y="530" font-family="JetBrains Mono, monospace" font-size="22" fill="#8B98A5">00:00</text>
+        <text x="510" y="530" font-family="JetBrains Mono, monospace" font-size="22" fill="#8B98A5">12:00</text>
+        <text x="980" y="530" text-anchor="end" font-family="JetBrains Mono, monospace" font-size="22" fill="#8B98A5">23:00</text>
+      </svg>
+    </div>
+  </div>
+  <div class="foot"><span>GridPilot · Team NO SUS</span><span>02</span></div>
+</section>
+
+<!-- ===================== 3 SOLUTION ===================== -->
+<section class="slide">
+  <div class="kicker"><b>02</b> · Solution</div>
+  <h1>One pipeline. <span class="dim">Weather in, signals out.</span></h1>
+  <div class="flow">
+    <div class="step"><div class="no">01</div><div class="t">Ingest</div><div class="d">Live form or CSV upload</div><div class="bar" style="background:#8B98A5"></div></div>
+    <div class="arrow"><svg width="44" height="32" viewBox="0 0 44 32"><path d="M2 16h34M26 4l12 12-12 12" fill="none" stroke="#5B6875" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+    <div class="step"><div class="no">02</div><div class="t">Clean</div><div class="d">Validate, fill gaps, build features</div><div class="bar" style="background:#8B98A5"></div></div>
+    <div class="arrow"><svg width="44" height="32" viewBox="0 0 44 32"><path d="M2 16h34M26 4l12 12-12 12" fill="none" stroke="#5B6875" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+    <div class="step"><div class="no">03</div><div class="t">Forecast 24 h</div><div class="d">QuickML endpoint, one kW value per hour</div><div class="bar" style="background:#2DD4BF"></div></div>
+    <div class="arrow"><svg width="44" height="32" viewBox="0 0 44 32"><path d="M2 16h34M26 4l12 12-12 12" fill="none" stroke="#5B6875" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+    <div class="step"><div class="no">04</div><div class="t">Controller</div><div class="d">Grid or storage, plus overload alert</div><div class="bar" style="background:linear-gradient(90deg,#60A5FA 0 50%,#2DD4BF 50% 100%)"></div></div>
+    <div class="arrow"><svg width="44" height="32" viewBox="0 0 44 32"><path d="M2 16h34M26 4l12 12-12 12" fill="none" stroke="#5B6875" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+    <div class="step"><div class="no">05</div><div class="t">Dashboard + signals</div><div class="d">Load curve, mode timeline, alerts, log</div><div class="bar" style="background:#F87171"></div></div>
+  </div>
+  <div class="flownote">Every forecast hour gets a <b>mode</b> and an <b>alert state</b> before that hour arrives.</div>
+  <div class="foot"><span>GridPilot · Team NO SUS</span><span>03</span></div>
+</section>
+
+<!-- ===================== 4 ARCHITECTURE ===================== -->
+<section class="slide">
+  <div class="kicker"><b>03</b> · Architecture on Zoho Catalyst</div>
+  <h1>Three parts. <span class="dim">All on Catalyst.</span></h1>
+  <div class="arch">
+    <svg class="wires" viewBox="0 0 1680 640" preserveAspectRatio="none" aria-hidden="true">
+      <defs>
+        <marker id="ah" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="12" markerHeight="12" orient="auto-start-reverse">
+          <path d="M1,1 L11,6 L1,11 Z" fill="#5B6875"/>
+        </marker>
+        <marker id="aht" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="12" markerHeight="12" orient="auto-start-reverse">
+          <path d="M1,1 L11,6 L1,11 Z" fill="#2DD4BF"/>
+        </marker>
+      </defs>
+      <!-- client <-> appsail -->
+      <line x1="440" y1="170" x2="586" y2="170" stroke="#5B6875" stroke-width="3" marker-end="url(#ah)" marker-start="url(#ah)"/>
+      <!-- appsail <-> quickml -->
+      <line x1="1110" y1="170" x2="1256" y2="170" stroke="#2DD4BF" stroke-width="3" marker-end="url(#aht)" marker-start="url(#aht)"/>
+      <!-- env -> appsail -->
+      <line x1="850" y1="492" x2="850" y2="414" stroke="#5B6875" stroke-width="3" stroke-dasharray="6 6" marker-end="url(#ah)"/>
+      <!-- predict.py -> quickml -->
+      <line x1="1470" y1="492" x2="1470" y2="364" stroke="#2DD4BF" stroke-width="3" stroke-dasharray="6 6" marker-end="url(#aht)"/>
+    </svg>
+
+    <div class="node" style="left:0; top:40px; width:440px; height:330px;">
+      <div class="h">Web client</div>
+      <div class="t">Dashboard</div>
+      <ul><li>Forecast form</li><li>CSV upload</li><li>Charts, badges, alerts</li></ul>
+    </div>
+    <div class="wirelabel" style="left:462px; top:118px;">HTTPS</div>
+
+    <div class="node hi" style="left:590px; top:0; width:520px; height:410px;">
+      <div class="h">Catalyst AppSail</div>
+      <div class="t">Python / Flask API</div>
+      <ul>
+        <li><code>POST /api/forecast</code></li>
+        <li><code>GET&nbsp; /health</code></li>
+        <li>Cleaning + features</li>
+        <li>Transition controller</li>
+        <li>Serves the dashboard</li>
+      </ul>
+    </div>
+    <div class="wirelabel" style="left:1134px; top:118px;">REST</div>
+
+    <div class="node hi" style="left:1260px; top:40px; width:420px; height:320px;">
+      <div class="h">Catalyst QuickML</div>
+      <div class="t">Regression</div>
+      <ul><li>Training pipeline</li><li>Published endpoint</li><li>kW per row</li></ul>
+    </div>
+
+    <div class="node" style="left:590px; top:496px; width:520px; height:144px; padding:26px 34px;">
+      <div class="h">Environment variables</div>
+      <div style="font-size:28px; margin-top:10px;"><code>QUICKML_*</code> <span class="muted">keys, never in code</span></div>
+    </div>
+    <div class="node" style="left:1260px; top:496px; width:420px; height:144px; padding:26px 34px;">
+      <div class="h">Judge path</div>
+      <div style="font-size:28px; margin-top:10px;"><code>predict.py</code> <span class="muted">same endpoint</span></div>
+    </div>
+    <div style="position:absolute; left:0; top:440px; width:540px;">
+      <div class="chips" style="flex-direction:column; gap:18px; align-items:flex-start;">
+        <span class="pill"><span class="dot" style="background:#2DD4BF"></span>Env-var credentials</span>
+        <span class="pill"><span class="dot" style="background:#60A5FA"></span>CORS allow-list</span>
+        <span class="pill"><span class="dot" style="background:#FBBF24"></span>Health endpoint</span>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>GridPilot · Team NO SUS</span><span>04</span></div>
+</section>
+
+<!-- ===================== 5 DATA ===================== -->
+<section class="slide">
+  <div class="kicker"><b>04</b> · Data &amp; cleaning</div>
+  <h1><span class="mono teal">4,000</span> training hours. <span class="dim">Cleaned the same way at train and predict time.</span></h1>
+  <div class="data">
+    <div class="card schema">
+      <h3>Schema</h3>
+      <div>timestamp <span>YYYY-MM-DD HH</span></div>
+      <div>ambient_temp_c <span>°C</span></div>
+      <div>humidity_pct <span>%</span></div>
+      <div>solar_irradiance_wm2 <span>W/m²</span></div>
+      <div class="tgt">→ target_demand_kw <span class="teal">kW</span></div>
+    </div>
+    <div class="card">
+      <h3>Cleaning</h3>
+      <ul class="rules">
+        <li>Normalize timestamps<small>parse, floor to hour, sort</small></li>
+        <li>Interpolate gaps<small>time-based, edges filled</small></li>
+        <li>Clip outliers<small>physical ranges per sensor</small></li>
+        <li>Dedupe<small>one row per hour</small></li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>Features</h3>
+      <ul class="rules">
+        <li>Hour, weekday</li>
+        <li>Cyclic hour<small>sin / cos</small></li>
+        <li>Cooling / heating degrees</li>
+        <li>Evening window flag<small>18–22 h</small></li>
+      </ul>
+    </div>
+  </div>
+  <div class="foot"><span>GridPilot · Team NO SUS</span><span>05</span></div>
+</section>
+
+<!-- ===================== 6 MODEL ===================== -->
+<section class="slide">
+  <div class="kicker"><b>05</b> · Model · QuickML</div>
+  <div class="modelname">{{MODEL_NAME}}</div>
+  <div class="metrics">
+    <div class="card metric"><div class="k">VALIDATION RMSE</div><div class="v teal">{{RMSE}}<small>kW</small></div></div>
+    <div class="card metric"><div class="k">VALIDATION MAE</div><div class="v">{{MAE}}<small>kW</small></div></div>
+    <div class="card metric">
+      <div class="k">CHRONOLOGICAL HOLD-OUT</div>
+      <div class="split">
+        <div class="bar"><div style="width:80%; background:#1E2A38; color:#E6EDF3;">train 80%</div><div style="width:20%; background:#2DD4BF; color:#0B0F14; font-weight:800;">20%</div></div>
+        <div class="lbl">Split by time, not shuffled. No future rows leak into training.</div>
+      </div>
+    </div>
+  </div>
+  <div class="why">
+    <div class="card"><div class="t amber">The test window is summer.</div><div class="d">Hotter than most training hours. Tree models cannot extrapolate past what they saw.</div></div>
+    <div class="card"><div class="t teal">So: linear + boosted residuals.</div><div class="d">Linear temperature terms carry the heat trend. Gradient boosting learns what is left.</div></div>
+  </div>
+  <div class="foot"><span>GridPilot · Team NO SUS</span><span>06</span></div>
+</section>
+
+<!-- ===================== 7 CONTROLLER ===================== -->
+<section class="slide">
+  <div class="kicker"><b>06</b> · Transition controller</div>
+  <h1>Three rules. <span class="dim">Every edge tested.</span></h1>
+  <div class="ctl">
+    <div>
+      <div class="rule" style="border-left-color:#2DD4BF">
+        <div class="c">Demand <span class="mono">&gt; 160 kW</span><br><span class="muted">or hour in</span> <span class="mono">18:00–22:00</span></div>
+        <div class="m teal">Renewable<br>Storage</div>
+      </div>
+      <div class="rule" style="border-left-color:#60A5FA">
+        <div class="c">Otherwise</div>
+        <div class="m blue">Main Grid</div>
+      </div>
+      <div class="rule" style="border-left-color:#F87171">
+        <div class="c">Demand <span class="mono">≥ 200 kW</span><br><span class="muted">independent of mode</span></div>
+        <div class="m red">Critical<br>Overload Alert</div>
+      </div>
+    </div>
+    <div class="card tests">
+      <h3>Boundary tests</h3>
+      <table>
+        <tr><td>160.00 kW</td><td class="blue">Main Grid</td><td class="r"><span class="ok"><svg width="34" height="34" viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="#2DD4BF" opacity=".16"/><path d="M6.5 12.5l3.5 3.5 7.5-8" fill="none" stroke="#2DD4BF" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span></td></tr>
+        <tr><td>160.01 kW</td><td class="teal">Storage</td><td class="r"><span class="ok"><svg width="34" height="34" viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="#2DD4BF" opacity=".16"/><path d="M6.5 12.5l3.5 3.5 7.5-8" fill="none" stroke="#2DD4BF" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span></td></tr>
+        <tr><td>200.00 kW</td><td class="red">Alert</td><td class="r"><span class="ok"><svg width="34" height="34" viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="#2DD4BF" opacity=".16"/><path d="M6.5 12.5l3.5 3.5 7.5-8" fill="none" stroke="#2DD4BF" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span></td></tr>
+        <tr><td>22:59</td><td class="teal">Storage</td><td class="r"><span class="ok"><svg width="34" height="34" viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="#2DD4BF" opacity=".16"/><path d="M6.5 12.5l3.5 3.5 7.5-8" fill="none" stroke="#2DD4BF" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span></td></tr>
+        <tr><td>23:00</td><td class="blue">Main Grid</td><td class="r"><span class="ok"><svg width="34" height="34" viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="#2DD4BF" opacity=".16"/><path d="M6.5 12.5l3.5 3.5 7.5-8" fill="none" stroke="#2DD4BF" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span></td></tr>
+      </table>
+    </div>
+  </div>
+  <div class="foot"><span>GridPilot · Team NO SUS</span><span>07</span></div>
+</section>
+
+<!-- ===================== 8 DASHBOARD ===================== -->
+<section class="slide">
+  <div class="kicker"><b>07</b> · Dashboard</div>
+  <h1>See the next 24 hours <span class="dim">at a glance.</span></h1>
+  <div class="dash">
+    <div>
+      <div class="shot desk">
+        <img src="../screens/dashboard-desktop.png" alt="GridPilot dashboard, desktop" onerror="this.parentNode.classList.add('missing')">
+        <div class="ph"><div class="frame"></div>Dashboard · desktop</div>
+      </div>
+      <div class="cap">Desktop · live Catalyst app</div>
+    </div>
+    <div>
+      <div class="shot mob">
+        <img src="../screens/dashboard-mobile.png" alt="GridPilot dashboard, mobile" onerror="this.parentNode.classList.add('missing')">
+        <div class="ph"><div class="frame" style="width:34px;height:56px;"></div>Mobile</div>
+      </div>
+      <div class="cap">Mobile · responsive</div>
+    </div>
+    <ul class="callouts">
+      <li><span class="dot" style="background:#E6EDF3"></span><div>Load curve<small>160 / 200 kW lines</small></div></li>
+      <li><span class="dot" style="background:#2DD4BF"></span><div>24 h mode timeline<small>grid or storage</small></div></li>
+      <li><span class="dot" style="background:#60A5FA"></span><div>Battery SoC</div></li>
+      <li><span class="dot" style="background:#F87171"></span><div>Alert banners<small>≥ 200 kW</small></div></li>
+      <li><span class="dot" style="background:#FBBF24"></span><div>Dispatch signal log</div></li>
+    </ul>
+  </div>
+  <div class="foot"><span>GridPilot · Team NO SUS</span><span>08</span></div>
+</section>
+
+<!-- ===================== 9 JUDGE-READY ===================== -->
+<section class="slide">
+  <div class="kicker"><b>08</b> · Judge-ready</div>
+  <h1>Built for the hidden test. <span class="dim">Runs first time.</span></h1>
+  <div class="judge">
+    <div>
+    <div class="card" style="padding:24px 40px;">
+      <ul class="contract">
+        <li><div class="i">01</div><div><div class="t">One row in, one prediction out</div><div class="d">Timestamp kept, order kept</div></div></li>
+        <li><div class="i">02</div><div><div class="t">Chunked calls</div><div class="d">Large files sent in batches</div></div></li>
+        <li><div class="i">03</div><div><div class="t">Retry</div><div class="d">Backoff on timeouts and 5xx</div></div></li>
+        <li><div class="i">04</div><div><div class="t">Fallback</div><div class="d">Never an empty or short CSV</div></div></li>
+      </ul>
+    </div>
+    <div class="checks">
+        <div><svg width="34" height="34" viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="#2DD4BF" opacity=".16"/><path d="M6.5 12.5l3.5 3.5 7.5-8" fill="none" stroke="#2DD4BF" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Public QuickML endpoint</div>
+        <div><svg width="34" height="34" viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="#2DD4BF" opacity=".16"/><path d="M6.5 12.5l3.5 3.5 7.5-8" fill="none" stroke="#2DD4BF" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>README: setup, architecture, env vars</div>
+      </div>
+    </div>
+    <div>
+      <div class="term">
+        <div class="tb"><i></i><i></i><i></i></div>
+<pre><span class="p">$</span> python predict.py \
+    --input sample_test_input.csv \
+    --output predictions.csv
+<span class="p">$</span> python test_eval.py
+<span class="s">SUCCESS</span></pre>
+      </div>
+      <div class="shot qml">
+        <img src="../screens/quickml.png" alt="QuickML pipeline and published endpoint" onerror="this.parentNode.classList.add('missing')">
+        <div class="ph"><div class="frame"></div>QuickML · published endpoint</div>
+      </div>
+      <div class="cap">QuickML pipeline · published endpoint</div>
+    </div>
+  </div>
+  <div class="foot"><span>GridPilot · Team NO SUS</span><span>09</span></div>
+</section>
+
+<!-- ===================== 10 NEXT ===================== -->
+<section class="slide">
+  <div class="kicker"><b>09</b> · What's next</div>
+  <h1>From forecast <span class="dim">to live control.</span></h1>
+  <div class="next">
+    <div class="card"><div class="n">01</div><div class="t">Real meter feeds</div><div class="d">Telemetry pushed in, not uploaded</div><div class="tag">Catalyst Event Listeners</div></div>
+    <div class="card"><div class="n">02</div><div class="t">Forecast history</div><div class="d">Predicted vs actual, tracked over time</div><div class="tag">Catalyst Data Store</div></div>
+    <div class="card"><div class="n">03</div><div class="t">Per-site models</div><div class="d">One model per microgrid, its own weather</div><div class="tag">QuickML pipelines</div></div>
+    <div class="card"><div class="n">04</div><div class="t">SMS alerts</div><div class="d">Operators warned before the overload hour</div><div class="tag">Catalyst Signals</div></div>
+  </div>
+  <div class="foot"><span>GridPilot · Team NO SUS</span><span>10</span></div>
+</section>
+
+<!-- ===================== 11 TEAM ===================== -->
+<section class="slide s-team">
+  <div class="kicker"><b>10</b> · Team</div>
+  <div class="wm">NO SUS<i></i></div>
+  <div class="who">Shubham Sahu <span class="muted" style="font-weight:600">· Team leader</span></div>
+  <div class="role">B.E. Electronics &amp; Computer Engineering · TSEC Mumbai</div>
+  <div class="links">
+    <div><span>Live app</span><span class="teal">{{APP_URL}}</span></div>
+    <div><span>Code</span><span>{{REPO_URL}}</span></div>
+    <div><span>GitHub</span><span>github.com/https-shubhamsahu</span></div>
+  </div>
+  <div class="thanks">Thank you.</div>
+  <div class="foot"><span>GridPilot · HackSphere 3.0</span><span>11</span></div>
+</section>
+
+</body>
+</html>
