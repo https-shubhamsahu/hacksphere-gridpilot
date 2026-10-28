@@ -13,7 +13,8 @@ GridPilot forecasts hourly microgrid demand (kW) from weather telemetry, then de
 
 - App: https://gridpilot-50047251149.development.catalystappsail.in
 - Code: https://github.com/https-shubhamsahu/hacksphere-gridpilot
-- Deck: [docs/deck/GridPilot_NO_SUS_HackSphere3.pdf](docs/deck/GridPilot_NO_SUS_HackSphere3.pdf)
+- Deck: [docs/deck/QUANTIX_GridPilot_HackSphere3.pdf](docs/deck/QUANTIX_GridPilot_HackSphere3.pdf)
+- Version at the submission deadline (28 Oct 2026, 23:48 IST): git tag [`submitted-2026-10-28`](https://github.com/https-shubhamsahu/hacksphere-gridpilot/tree/submitted-2026-10-28). Later commits only redesign the dashboard and deck; the API, model and controller are unchanged.
 - Judge endpoint (what `predict.py` calls): `POST https://gridpilot-50047251149.development.catalystappsail.in/api/predict`
 
 ![GridPilot dashboard](docs/screens/dashboard-desktop.png)
@@ -21,10 +22,10 @@ GridPilot forecasts hourly microgrid demand (kW) from weather telemetry, then de
 ## Architecture
 
 ```
- Browser dashboard (appsail/static: index.html, app.js, styles.css)
+ Browser dashboard (appsail/static: index.html, app.js, charts.js, styles.css)
         |  fetch /api/*
         v
- Zoho Catalyst AppSail  (Python 3.9 + Flask, appsail/app.py)
+ Zoho Catalyst AppSail  (Python 3.13 + Flask, appsail/app.py)
    gridpilot/cleaning.py    parse timestamps, coerce numbers, impute, clip, dedupe
    gridpilot/features.py    QuickML row features + local model features
    gridpilot/quickml.py  -- OAuth (Zoho Accounts) --> Catalyst QuickML published endpoint
@@ -36,6 +37,18 @@ GridPilot forecasts hourly microgrid demand (kW) from weather telemetry, then de
 ```
 
 The AppSail runtime needs only Flask. All inference is plain Python reading `appsail/model.json`, so the container stays small and starts fast.
+
+## Dashboard
+
+One page, in reading order: a sentence that states the forecast ("Next 24 hours: battery storage for 16 h, main grid for 8 h. Peak 292 kW at 18:00."), overload and battery-reserve notices, the demand chart with the hour-by-hour source strip on the same time axis, an hour inspector (mode, demand, the rules that fired, battery, solar, weather), daily figures, battery and temperature charts, dispatch signals, the system log, data input (CSV upload, manual entry, sample day) with a data-check report, and the full table with CSV export.
+
+Design choices:
+- Light, flat, print-like: IBM Plex Sans, black text, hairline rules, one accent (green = battery storage), red only for overload. No gradients, shadows or blur.
+- Charts are hand-written SVG (`appsail/static/charts.js`, no chart library): direct labels, threshold lines labelled in place, keyboard support (arrow keys move the selected hour) and a hidden data table for screen readers.
+- Colour is never the only signal: storage and grid also differ by shape and the letters S and G, and overload hours carry a marker.
+- Works offline from the AppSail origin: fonts are self-hosted and the page makes no third-party requests. Tested at 375 px (no sideways scroll, 44 px tap targets) and 1440 px.
+
+![GridPilot dashboard on a phone](docs/screens/dashboard-mobile.png)
 
 ## Model
 
@@ -197,12 +210,12 @@ The simulation never overrides the controller rules.
 ```
 appsail/                 Catalyst AppSail service
   app.py                 Flask app, API + static dashboard
-  app-config.json        AppSail config (python_3_9)
+  app-config.json        AppSail config (python_3_13)
   requirements.txt       Flask only
   model.json             exported hybrid model
   sample_24h.csv         first 24 rows of sample_test_input.csv
   gridpilot/             cleaning, features, model, controller, quickml
-  static/                dashboard (index.html, app.js, styles.css)
+  static/                dashboard (index.html, app.js, charts.js, styles.css, tokens.css, fonts/)
 model/
   train.py               training + validation + export
   RESULTS.md             validation table

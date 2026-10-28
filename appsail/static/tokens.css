@@ -1,0 +1,28 @@
+/* GridPilot design tokens. Swiss / engineering-report style shared with the deck.
+   Light only. Flat colour. No gradients, shadows, blur or glow. */
+@font-face { font-family: "IBM Plex Sans"; font-weight: 400; font-display: swap; src: url(fonts/ibm-plex-sans-latin-400-normal.woff2) format("woff2"); }
+@font-face { font-family: "IBM Plex Sans"; font-weight: 500; font-display: swap; src: url(fonts/ibm-plex-sans-latin-500-normal.woff2) format("woff2"); }
+@font-face { font-family: "IBM Plex Sans"; font-weight: 600; font-display: swap; src: url(fonts/ibm-plex-sans-latin-600-normal.woff2) format("woff2"); }
+@font-face { font-family: "IBM Plex Sans"; font-weight: 700; font-display: swap; src: url(fonts/ibm-plex-sans-latin-700-normal.woff2) format("woff2"); }
+@font-face { font-family: "JetBrains Mono"; font-weight: 400; font-display: swap; src: url(fonts/jetbrains-mono-latin-400-normal.woff2) format("woff2"); }
+@font-face { font-family: "JetBrains Mono"; font-weight: 500; font-display: swap; src: url(fonts/jetbrains-mono-latin-500-normal.woff2) format("woff2"); }
+:root {
+  --paper: #FFFFFF;
+  --paper-2: #F4F4F2;     /* flat tint: code blocks, hovered rows, input bg */
+  --ink: #111111;         /* text, main-grid mode */
+  --ink-2: #3D3D3D;       /* body */
+  --ink-3: #6B6B6B;       /* captions, axes (5.3:1 on white) */
+  --rule: #D6D6D2;        /* hairlines */
+  --rule-2: #EBEBE8;      /* chart gridlines */
+  --accent: #00754A;      /* renewable storage + brand; the only accent */
+  --accent-tint: #E3F1EA;
+  --alert: #C62828;       /* overload only */
+  --alert-tint: #FBE9E7;
+  --warn: #8A5A00;        /* battery reserve warning text (6.0:1) */
+  --warn-tint: #FFF4D6;
+  --focus: #1F5FBF;       /* focus ring */
+  --sans: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
+  --mono: "JetBrains Mono", "IBM Plex Mono", Menlo, Consolas, monospace;
+  --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px; --s6: 32px; --s7: 48px; --s8: 64px;
+  --radius: 2px;
+}

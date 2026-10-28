@@ -1,950 +1,854 @@
-/* GridPilot dashboard: HackSphere 3.0, Team NO SUS */
-(() => {
+/* GridPilot dashboard. Team QUANTIX, HackSphere 3.0.
+   Plain ES2017, no dependencies. Charts come from charts.js (window.GPCharts) when present. */
+(function () {
   'use strict';
 
-  const API = {
-    health: 'api/health',
-    sample: 'api/sample',
-    forecast: 'api/forecast',
-    csv: 'api/forecast/csv',
-    logs: 'api/logs',
-  };
-  const RULE = { storage: 160, overload: 200, winStart: 18, winEnd: 22, lowSoc: 20 };
-  const BATTERY = { capacity_kwh: 500, initial_soc_pct: 80 };
-  const COLS = ['timestamp', 'ambient_temp_c', 'humidity_pct', 'solar_irradiance_wm2'];
-  const C = {
-    teal: '#2DD4BF', blue: '#60A5FA', red: '#EF4444', redSoft: '#F87171', amber: '#FBBF24',
-    solar: 'rgba(253, 224, 71, 0.55)', grid: 'rgba(148, 163, 184, 0.08)', muted: '#8B98A9', text: '#E6EDF3',
-  };
-  const STEP_MS = 1500;
+  var API = { health: 'api/health', sample: 'api/sample', forecast: 'api/forecast', csv: 'api/forecast/csv', logs: 'api/logs' };
+  var RULE = { storage: 160, overload: 200, winStart: 18, winEnd: 22, reserve: 20 };
+  var BATTERY = { capacity_kwh: 500, initial_soc_pct: 80 };
+  var COLS = ['timestamp', 'ambient_temp_c', 'humidity_pct', 'solar_irradiance_wm2'];
+  var COL_NAMES = { timestamp: 'timestamp', ambient_temp_c: 'temperature', humidity_pct: 'humidity', solar_irradiance_wm2: 'irradiance' };
+  var LIMITS = { ambient_temp_c: [-30, 60, 'Temperature', '°C'], humidity_pct: [0, 100, 'Humidity', '%'], solar_irradiance_wm2: [0, 1400, 'Irradiance', 'W/m²'] };
+  var EVENT_WORDS = { SWITCH_TO_STORAGE: 'Switch to battery storage', SWITCH_TO_GRID: 'Switch to main grid', OVERLOAD_ALERT: 'Overload alert' };
+  var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  var STEP_MS = 1500, LOG_MS = 10000, HEALTH_MS = 30000;
+  var X_ICON = '<svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M3 3l10 10M13 3L3 13" stroke="currentColor" stroke-width="1.6" fill="none"/></svg>';
 
-  const state = {
-    rows: [], summary: null, signals: [], cleaning: null, source: null,
-    sel: 0, playing: false, timer: null, health: null, charts: {},
-    sample: [], lastRunAt: null, dismissed: new Set(), busy: false,
+  var state = {
+    rows: [], summary: null, signals: [], cleaning: null, source: null, label: '', generatedAt: null,
+    sel: 0, playing: false, timer: null, health: null, sample: [], charts: {}, dismissed: {},
+    busy: false, tab: 0, file: null, logTimer: null, healthTimer: null, chartWidth: 0
   };
+  var reduceMotion = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : { matches: false };
 
   /* ---------- helpers ---------- */
-  const $ = (s, r = document) => r.querySelector(s);
-  const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  const num = (v) => (v === null || v === undefined || v === '' ? NaN : Number(v));
-  const fmt = (v, d = 1) => (Number.isFinite(num(v)) ? num(v).toFixed(d) : '--');
-  const fmtInt = (v) => (Number.isFinite(num(v)) ? Math.round(num(v)).toLocaleString('en-IN') : '--');
-  const pad = (n) => String(n).padStart(2, '0');
-  const icon = (id, cls = 'ic') => `<svg class="${cls}" aria-hidden="true"><use href="#${id}"/></svg>`;
-  const isStorage = (r) => r && r.grid_mode === 'RENEWABLE_STORAGE';
-
-  function hourLabel(ts) {
-    const m = /[ T](\d{1,2}):(\d{2})/.exec(String(ts || ''));
-    return m ? `${pad(m[1])}:${m[2]}` : String(ts || '--');
+  function $(s, r) { return (r || document).querySelector(s); }
+  function $$(s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); }
+  function esc(v) {
+    return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
   }
-  function hourNum(ts) {
-    const m = /[ T](\d{1,2}):/.exec(String(ts || ''));
-    return m ? Number(m[1]) : NaN;
-  }
-  function dateLabel(ts) {
-    const m = /^(\d{4}-\d{2}-\d{2})/.exec(String(ts || ''));
-    return m ? m[1] : '';
-  }
-  function inWindow(ts) {
-    const h = hourNum(ts);
-    return h >= RULE.winStart && h <= RULE.winEnd;
-  }
+  function num(v) { return v === null || v === undefined || v === '' ? NaN : Number(v); }
+  function fmt(v, d) { var n = num(v); return isFinite(n) ? n.toFixed(d == null ? 1 : d) : '–'; }
+  function fmtInt(v) { var n = num(v); return isFinite(n) ? Math.round(n).toLocaleString('en-IN') : '–'; }
+  function pad(n) { return String(n).padStart(2, '0'); }
+  function cap(s) { s = String(s || ''); return s.charAt(0).toUpperCase() + s.slice(1); }
+  function plural(n, one, many) { return n + ' ' + (n === 1 ? one : many); }
   function parseTs(ts) {
-    const m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/.exec(String(ts || '').trim());
+    var m = /^(\d{4})-(\d{1,2})-(\d{1,2})[ T](\d{1,2}):(\d{2})(?::(\d{2}))?$/.exec(String(ts || '').trim());
     if (!m) return null;
-    return new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +(m[6] || 0));
+    var d = new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +(m[6] || 0));
+    return isNaN(d.getTime()) || d.getMonth() !== +m[2] - 1 ? null : d;
   }
   function fmtTs(d) {
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+  }
+  function hourLabel(ts) { var m = /[ T](\d{1,2}):(\d{2})/.exec(String(ts || '')); return m ? pad(m[1]) + ':' + m[2] : String(ts || '–'); }
+  function dayLabel(ts) { var m = /^\d{4}-(\d{2})-(\d{2})/.exec(String(ts || '')); return m ? (+m[2]) + ' ' + MONTHS[+m[1] - 1] : ''; }
+  function stamp(ts) { return (dayLabel(ts) + ' ' + hourLabel(ts)).trim(); }
+  function isStorage(r) { return r && r.grid_mode === 'RENEWABLE_STORAGE'; }
+  var istFmt = (function () {
+    try { return new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }); }
+    catch (e) { return null; }
+  })();
+  function ist(d, withSeconds) {
+    var s = istFmt ? istFmt.format(d) : pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+    return withSeconds ? s : s.slice(0, 5);
+  }
+  function indexOfTs(ts) {
+    for (var i = 0; i < state.rows.length; i++) if (state.rows[i].timestamp === ts) return i;
+    return -1;
+  }
+  function modeHTML(r) {
+    return isStorage(r)
+      ? '<span class="mark mark-storage" aria-hidden="true"></span>Battery storage'
+      : '<span class="mark mark-grid" aria-hidden="true"></span>Main grid';
   }
 
-  async function fetchJSON(url, opts = {}, timeoutMs = 45000) {
-    const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), timeoutMs);
-    try {
-      const res = await fetch(url, { ...opts, signal: ctrl.signal, headers: { Accept: 'application/json', ...(opts.headers || {}) } });
-      let body = null;
-      const text = await res.text();
-      try { body = text ? JSON.parse(text) : null; } catch { body = null; }
-      if (!res.ok) {
-        const msg = (body && (body.error || body.message || body.detail)) || `${res.status} ${res.statusText || 'error'}`;
-        throw new Error(typeof msg === 'string' ? msg : JSON.stringify(msg));
-      }
-      if (body === null) throw new Error('Server returned a non-JSON response');
-      return body;
-    } catch (e) {
-      if (e.name === 'AbortError') throw new Error('Request timed out');
-      throw e;
-    } finally {
-      clearTimeout(t);
-    }
+  function fetchJSON(url, opts, timeoutMs) {
+    opts = opts || {};
+    var ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    var t = ctrl ? setTimeout(function () { ctrl.abort(); }, timeoutMs || 45000) : null;
+    var headers = Object.assign({ Accept: 'application/json' }, opts.headers || {});
+    return fetch(url, Object.assign({}, opts, { headers: headers, signal: ctrl ? ctrl.signal : undefined }))
+      .then(function (res) {
+        return res.text().then(function (text) {
+          var data = null;
+          try { data = text ? JSON.parse(text) : null; } catch (e) { /* not JSON */ }
+          if (!res.ok) {
+            var msg = data && data.error ? data.error : 'HTTP ' + res.status;
+            var err = new Error(msg); err.data = data; throw err;
+          }
+          if (data === null) throw new Error('The server sent an empty or invalid response');
+          return data;
+        });
+      })
+      .catch(function (e) {
+        if (e && e.name === 'AbortError') throw new Error('The server took too long to respond');
+        if (e instanceof TypeError) throw new Error('Cannot reach the server');
+        throw e;
+      })
+      .finally(function () { if (t) clearTimeout(t); });
   }
 
-  function toast(msg, type = 'error', ms = 6000) {
-    const box = $('#toasts');
-    const el = document.createElement('div');
-    el.className = `toast ${type}`;
-    el.setAttribute('role', type === 'error' ? 'alert' : 'status');
-    const ic = type === 'ok' ? 'i-check' : 'i-alert';
-    el.innerHTML = `${icon(ic, '')}<span class="t-msg">${esc(msg)}</span><button class="btn icon-btn xs" type="button" aria-label="Dismiss notification">${icon('i-x')}</button>`;
-    el.querySelector('button').addEventListener('click', () => el.remove());
-    box.appendChild(el);
-    while (box.children.length > 4) box.firstChild.remove();
-    setTimeout(() => el.remove(), ms);
-  }
-
-  function setBusy(on) {
-    state.busy = on;
-    document.body.classList.toggle('is-busy', on);
-    ['#btn-run', '#btn-sample'].forEach((s) => { const b = $(s); if (b) b.disabled = on; });
-  }
-
-  /* ---------- clock ---------- */
+  /* ---------- clock + health ---------- */
   function tickClock() {
-    const d = new Date();
-    $('#clock-time').textContent = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-    let tz = '';
-    try { tz = new Intl.DateTimeFormat('en-IN', { timeZoneName: 'short' }).formatToParts(d).find((p) => p.type === 'timeZoneName')?.value || ''; } catch { /* noop */ }
-    $('#clock-date').textContent = `${d.toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })}${tz ? ' · ' + tz : ''}`;
+    var d = new Date();
+    var el = $('#clock');
+    el.textContent = ist(d, false);
+    el.setAttribute('datetime', d.toISOString());
   }
-
-  /* ---------- health ---------- */
-  async function loadHealth() {
-    const pill = $('#api-pill');
-    try {
-      const h = await fetchJSON(API.health, {}, 15000);
-      state.health = h;
-      pill.className = 'status-pill ' + (h.status === 'ok' ? 'is-ok' : 'is-err');
-      renderPill();
-    } catch (e) {
-      state.health = null;
-      pill.className = 'status-pill is-err';
-      $('#api-pill-main').textContent = 'API offline';
-      $('#api-pill-sub').textContent = e.message;
-    }
-  }
-  function renderPill() {
-    const h = state.health;
-    if (!h) return;
-    const src = state.source ? state.source : (h.quickml_configured ? 'quickml' : 'local');
-    const srcLabel = src === 'quickml' ? 'QuickML' : 'local model';
-    $('#api-pill-main').textContent = h.status === 'ok' ? `API online · ${srcLabel}` : `API ${h.status || 'degraded'}`;
-    const parts = [];
-    if (h.model) parts.push(h.model + (h.model_version ? ` v${h.model_version}` : ''));
-    if (Number.isFinite(num(h.validation_rmse))) parts.push(`RMSE ${fmt(h.validation_rmse, 2)} kW`);
-    $('#api-pill-sub').textContent = parts.join(' · ');
-    $('#api-pill').title = `Model: ${h.model || '?'} ${h.model_version || ''}\nSource: ${srcLabel}\nValidation RMSE: ${fmt(h.validation_rmse, 3)}\nQuickML configured: ${h.quickml_configured ? 'yes' : 'no'}\nServer time: ${h.time || '?'}`;
-  }
-
-  /* ---------- logs ---------- */
-  async function loadLogs() {
-    try {
-      const res = await fetchJSON(API.logs, {}, 15000);
-      const events = Array.isArray(res.events) ? res.events.slice(-80).reverse() : [];
-      const ol = $('#syslog');
-      if (!events.length) { ol.innerHTML = '<li class="empty">No events logged yet</li>'; }
-      else {
-        ol.innerHTML = events.map((ev) => {
-          const lvl = ['INFO', 'WARN', 'ALERT'].includes(ev.level) ? ev.level : 'INFO';
-          return `<li><span class="t">${esc(shortTime(ev.time))}</span><span class="ev ${lvl}">${lvl}</span><span class="d">${esc(ev.message)}</span></li>`;
-        }).join('');
-      }
-      const d = new Date();
-      $('#sys-updated').textContent = `updated ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-    } catch (e) {
-      $('#sys-updated').textContent = 'log feed unavailable';
-    }
-  }
-  function shortTime(t) {
-    const m = /(\d{2}:\d{2}:\d{2})/.exec(String(t || ''));
-    return m ? m[1] : String(t || '');
-  }
-
-  /* ---------- sample + manual table ---------- */
-  async function loadSample(runAfter = false) {
-    setBusy(true);
-    try {
-      const res = await fetchJSON(API.sample);
-      const rows = Array.isArray(res.data) ? res.data : [];
-      if (!rows.length) throw new Error('Sample endpoint returned no rows');
-      state.sample = rows;
-      fillManual(rows);
-      if (runAfter) await runForecast(rows, 'sample');
-      else toast(`Loaded ${rows.length} sample hours into manual entry`, 'ok', 3500);
-    } catch (e) {
-      toast(`Could not load sample data: ${e.message}`);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  function manualRowHTML(r = {}) {
-    const v = (k) => (r[k] === null || r[k] === undefined ? '' : esc(r[k]));
-    return `<tr>
-      <td><input class="ts" type="text" value="${v('timestamp')}" placeholder="YYYY-MM-DD HH:MM:SS" aria-label="Timestamp" spellcheck="false"></td>
-      <td><input type="number" step="0.1" inputmode="decimal" value="${v('ambient_temp_c')}" aria-label="Ambient temperature in degrees Celsius"></td>
-      <td><input type="number" step="0.1" inputmode="decimal" value="${v('humidity_pct')}" aria-label="Humidity percent"></td>
-      <td><input type="number" step="1" inputmode="decimal" value="${v('solar_irradiance_wm2')}" aria-label="Solar irradiance in watts per square metre"></td>
-      <td><button class="btn icon-btn xs row-del" type="button" aria-label="Remove this hour">${icon('i-x')}</button></td>
-    </tr>`;
-  }
-  function fillManual(rows) {
-    $('#manual-body').innerHTML = rows.map(manualRowHTML).join('');
-    updateManualCount();
-  }
-  function updateManualCount() {
-    const n = $('#manual-body').children.length;
-    $('#manual-count').textContent = `${n} row${n === 1 ? '' : 's'}`;
-  }
-  function readManual() {
-    const out = [];
-    $('#manual-body').querySelectorAll('tr').forEach((tr) => {
-      const ins = tr.querySelectorAll('input');
-      const ts = ins[0].value.trim();
-      const vals = [1, 2, 3].map((i) => { const s = ins[i].value.trim(); return s === '' ? null : Number(s); });
-      if (!ts && vals.every((x) => x === null)) return;
-      ins[0].classList.toggle('invalid', !parseTs(ts));
-      out.push({ timestamp: ts, ambient_temp_c: vals[0], humidity_pct: vals[1], solar_irradiance_wm2: vals[2] });
+  function loadHealth() {
+    return fetchJSON(API.health, {}, 15000).then(function (h) {
+      state.health = h; renderHealth();
+    }).catch(function () {
+      state.health = null; renderHealth(true);
     });
-    return out;
   }
-  function addHour() {
-    const body = $('#manual-body');
-    const last = body.lastElementChild;
-    let next = {};
-    if (last) {
-      const ins = last.querySelectorAll('input');
-      const d = parseTs(ins[0].value);
-      next = {
-        timestamp: d ? fmtTs(new Date(d.getTime() + 3600000)) : '',
-        ambient_temp_c: ins[1].value, humidity_pct: ins[2].value, solar_irradiance_wm2: ins[3].value,
-      };
-    } else {
-      const d = new Date(); d.setMinutes(0, 0, 0);
-      next = { timestamp: fmtTs(d) };
-    }
-    body.insertAdjacentHTML('beforeend', manualRowHTML(next));
-    updateManualCount();
-    const tr = body.lastElementChild;
-    tr.scrollIntoView({ block: 'nearest' });
-    tr.querySelector('input').focus();
-  }
-
-  /* ---------- forecast ---------- */
-  async function runForecast(rows, label = 'manual') {
-    if (!rows || !rows.length) { toast('Add at least one hour of data before running a forecast', 'warn'); return; }
-    setBusy(true);
-    try {
-      const res = await fetchJSON(API.forecast, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ data: rows, battery: BATTERY }),
-      });
-      applyResult(res, label);
-    } catch (e) {
-      toast(`Forecast failed: ${e.message}`);
-    } finally {
-      setBusy(false);
-      loadLogs();
-    }
-  }
-  async function runCsv(file) {
-    if (!file) return;
-    if (!/\.csv$/i.test(file.name) && file.type && !/csv|text\/plain|excel/i.test(file.type)) {
-      toast(`"${file.name}" is not a CSV file`, 'warn');
+  function sourceLabel(src) { return src === 'quickml' ? 'QuickML model' : 'local model'; }
+  function renderHealth(offline) {
+    var dot = $('#api-dot'), text = $('#api-text');
+    if (offline || !state.health) {
+      dot.className = 'dot dot-err';
+      text.textContent = 'API offline';
       return;
     }
-    $('#dz-file').textContent = `${file.name} · ${(file.size / 1024).toFixed(1)} KB · uploading`;
-    setBusy(true);
-    try {
-      const fd = new FormData();
-      fd.append('file', file, file.name);
-      const res = await fetchJSON(API.csv, { method: 'POST', body: fd });
-      applyResult(res, file.name);
-      $('#dz-file').textContent = `${file.name} · ${(file.size / 1024).toFixed(1)} KB · forecast ready`;
-    } catch (e) {
-      $('#dz-file').textContent = `${file.name} · upload failed`;
-      toast(`CSV forecast failed: ${e.message}`);
-    } finally {
+    var h = state.health;
+    var ok = h.status === 'ok';
+    dot.className = 'dot ' + (ok ? 'dot-ok' : 'dot-err');
+    var src = state.source || (h.quickml_configured ? 'quickml' : 'local');
+    var parts = [ok ? 'API online' : 'API ' + (h.status || 'degraded'), sourceLabel(src)];
+    if (isFinite(num(h.validation_rmse))) parts.push('RMSE ' + fmt(h.validation_rmse, 2) + ' kW');
+    text.textContent = parts.join(' · ');
+    $('#api-status').title = 'Model ' + (h.model || '?') + (h.model_version ? ' ' + h.model_version : '') + ', QuickML ' + (h.quickml_configured ? 'configured' : 'not configured');
+  }
+
+  /* ---------- system log ---------- */
+  function loadLogs() {
+    return fetchJSON(API.logs, {}, 15000).then(function (res) {
+      var events = Array.isArray(res.events) ? res.events.slice(-100).reverse() : [];
+      var body = $('#log-body');
+      if (!events.length) body.innerHTML = '<tr><td colspan="3" class="empty">No events logged yet.</td></tr>';
+      else {
+        body.innerHTML = events.map(function (ev) {
+          var lvl = ['INFO', 'WARN', 'ALERT'].indexOf(ev.level) >= 0 ? ev.level : 'INFO';
+          var d = new Date(ev.time);
+          var t = isNaN(d.getTime()) ? esc(ev.time) : ist(d, true);
+          return '<tr><td class="time">' + t + '</td><td><span class="lvl lvl-' + lvl + '">' + lvl + '</span></td><td>' + esc(ev.message) + '</td></tr>';
+        }).join('');
+      }
+      $('#log-updated').textContent = 'Updated ' + ist(new Date(), true) + ' · ' + plural(events.length, 'event', 'events');
+    }).catch(function () {
+      $('#log-updated').textContent = 'Log unavailable, retrying in 10 s';
+    });
+  }
+  function startPolling() {
+    stopPolling();
+    state.logTimer = setInterval(loadLogs, LOG_MS);
+    state.healthTimer = setInterval(loadHealth, HEALTH_MS);
+  }
+  function stopPolling() {
+    clearInterval(state.logTimer); clearInterval(state.healthTimer);
+    state.logTimer = state.healthTimer = null;
+  }
+
+  /* ---------- forecast run ---------- */
+  function setBusy(on, message) {
+    state.busy = on;
+    var btn = $('#btn-run');
+    btn.setAttribute('aria-disabled', on ? 'true' : 'false');
+    btn.textContent = on ? 'Running forecast…' : 'Run forecast';
+    if (message !== undefined) setRunStatus(message);
+  }
+  function setRunStatus(msg, isError) {
+    var el = $('#run-status');
+    el.className = 'run-status' + (isError ? ' is-error' : '');
+    el.innerHTML = msg || '';
+  }
+
+  function postForecast(rows) {
+    return fetchJSON(API.forecast, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ data: rows, battery: BATTERY })
+    });
+  }
+  function postCsv(file) {
+    var fd = new FormData();
+    fd.append('file', file, file.name);
+    fd.append('capacity_kwh', String(BATTERY.capacity_kwh));
+    fd.append('initial_soc_pct', String(BATTERY.initial_soc_pct));
+    return fetchJSON(API.csv, { method: 'POST', body: fd });
+  }
+
+  function run(promiseFn, label, fromInput) {
+    if (state.busy) return Promise.resolve();
+    setBusy(true, 'Running forecast for ' + esc(label) + '…');
+    return promiseFn().then(function (res) {
+      applyResult(res, label);
+      var n = state.rows.length;
+      setRunStatus(fromInput ? 'Forecast updated: ' + plural(n, 'hour', 'hours') + ' from ' + esc(label) + '. <a href="#summary">Go to summary</a>' : '');
+    }).catch(function (e) {
+      if (e && e.data && e.data.cleaning) { state.cleaning = e.data.cleaning; state.label = label; renderCheck(); }
+      setRunStatus('Forecast failed: ' + esc(e.message) + '. The previous forecast is still shown.', true);
+      if (!state.rows.length) showLoadError(e.message);
+    }).then(function () {
       setBusy(false);
-      $('#file-input').value = '';
       loadLogs();
-    }
+    });
   }
 
   function applyResult(res, label) {
-    const rows = Array.isArray(res && res.rows) ? res.rows : [];
-    if (!rows.length) throw new Error('Forecast returned no rows');
+    var rows = res && Array.isArray(res.rows) ? res.rows : [];
+    if (!rows.length) throw new Error('The forecast returned no rows');
+    stopPlay();
     state.rows = rows;
-    state.summary = res.summary || computeSummary(rows);
+    state.summary = res.summary || {};
     state.signals = Array.isArray(res.signals) ? res.signals : [];
     state.cleaning = res.cleaning || null;
     state.source = res.model_source || null;
-    state.lastRunAt = new Date();
-    state.runLabel = label;
-    state.dismissed.clear();
-
-    // Start the replay at the current wall-clock hour when it exists in the horizon
-    const nowH = new Date().getHours();
-    const idx = rows.findIndex((r) => hourNum(r.timestamp) === nowH);
-    state.sel = idx >= 0 ? idx : 0;
-
-    const range = $('#hour-range');
-    range.max = String(rows.length - 1);
-
+    state.label = label;
+    state.generatedAt = new Date();
+    state.dismissed = {};
+    var peak = indexOfTs(state.summary.peak_hour);
+    state.sel = peak >= 0 ? peak : 0;
     renderAll();
-    renderPill();
-    startPlay();
-    const s = state.summary;
-    toast(`Forecast ready: ${rows.length} h, peak ${fmt(s.peak_demand_kw)} kW at ${hourLabel(s.peak_hour) || s.peak_hour}`, 'ok', 3500);
   }
 
-  function computeSummary(rows) {
-    const d = rows.map((r) => num(r.predicted_demand_kw));
-    let pi = 0; d.forEach((v, i) => { if (v > d[pi]) pi = i; });
-    let trans = 0; rows.forEach((r, i) => { if (i && r.grid_mode !== rows[i - 1].grid_mode) trans++; });
-    return {
-      peak_demand_kw: d[pi], peak_hour: rows[pi].timestamp,
-      avg_demand_kw: d.reduce((a, b) => a + b, 0) / d.length,
-      total_energy_kwh: d.reduce((a, b) => a + b, 0),
-      storage_hours: rows.filter(isStorage).length,
-      grid_hours: rows.filter((r) => !isStorage(r)).length,
-      overload_hours: rows.filter((r) => r.overload_alert).length,
-      transitions: trans,
-      min_soc_pct: Math.min(...rows.map((r) => num(r.battery_soc_pct))),
-    };
-  }
-
-  /* ---------- render ---------- */
+  /* ---------- rendering ---------- */
   function renderAll() {
-    renderBanners();
-    renderKPIs();
-    renderTimeline();
+    renderHealth(!state.health);
+    renderSummary();
+    renderNotices();
+    renderStrip();
     renderCharts();
+    renderFigures();
     renderSignals();
-    renderCleaning();
     renderTable();
-    renderMeta();
-    select(state.sel, false);
+    renderCheck();
+    select(state.sel, { silent: true });
   }
 
-  function renderMeta() {
-    const r0 = state.rows[0];
-    const rN = state.rows[state.rows.length - 1];
-    const src = state.source === 'quickml' ? 'QuickML' : state.source === 'local' ? 'local model' : 'model';
-    const at = state.lastRunAt;
-    $('#run-meta').textContent = `${dateLabel(r0.timestamp)} ${hourLabel(r0.timestamp)} to ${hourLabel(rN.timestamp)} · ${state.rows.length} h horizon · ${src} · generated ${pad(at.getHours())}:${pad(at.getMinutes())}:${pad(at.getSeconds())}`;
-    $('#clean-src').textContent = state.runLabel === 'sample' ? 'sample 24 h' : String(state.runLabel || '');
+  function headline() {
+    var rows = state.rows, s = state.summary, n = rows.length;
+    var st = s.storage_hours | 0, gr = s.grid_hours | 0;
+    var lead = n === 1 ? 'Next hour: ' : 'Next ' + n + ' hours: ';
+    var modes;
+    if (st && gr) modes = 'battery storage for ' + st + ' h, main grid for ' + gr + ' h.';
+    else if (st) modes = 'battery storage for all ' + st + ' h.';
+    else modes = 'main grid for all ' + gr + ' h.';
+    return lead + modes + ' Peak ' + fmtInt(s.peak_demand_kw) + ' kW at ' + hourLabel(s.peak_hour) + '.';
+  }
+  function renderSummary() {
+    var h = $('#headline');
+    h.classList.remove('is-loading');
+    h.textContent = headline();
+    var first = state.rows[0].timestamp, last = state.rows[state.rows.length - 1].timestamp;
+    var parts = [
+      'Forecast for ' + stamp(first) + ' – ' + stamp(last),
+      'generated ' + ist(state.generatedAt, false) + ' IST',
+      sourceLabel(state.source),
+      'input: ' + state.label
+    ];
+    $('#run-meta').textContent = parts.join(' · ');
+    document.title = 'GridPilot · Peak ' + fmtInt(state.summary.peak_demand_kw) + ' kW at ' + hourLabel(state.summary.peak_hour);
   }
 
-  function renderBanners() {
-    const box = $('#banners');
-    const items = [];
-    const over = state.rows.filter((r) => r.overload_alert);
-    if (over.length && !state.dismissed.has('overload')) {
-      const worst = over.reduce((a, b) => (num(b.predicted_demand_kw) > num(a.predicted_demand_kw) ? b : a));
-      const hours = over.map((r) => hourLabel(r.timestamp));
-      items.push({
-        key: 'overload', cls: 'critical', ic: 'i-alert', jump: state.rows.indexOf(worst),
-        title: `Critical overload forecast at ${hourLabel(worst.timestamp)} — ${fmt(worst.predicted_demand_kw)} kW`,
-        sub: `${over.length} hour${over.length > 1 ? 's' : ''} at or above ${RULE.overload} kW (${hours.join(', ')}). Pre-charge storage and shed non-critical load before the peak.`,
-      });
+  function renderNotices() {
+    var rows = state.rows, out = [];
+    var olIdx = [];
+    rows.forEach(function (r, i) { if (r.overload_alert) olIdx.push(i); });
+    if (olIdx.length && !state.dismissed.overload) {
+      var pk = olIdx.reduce(function (a, i) { return num(rows[i].predicted_demand_kw) > num(rows[a].predicted_demand_kw) ? i : a; }, olIdx[0]);
+      var pr = rows[pk];
+      var over = num(pr.predicted_demand_kw) - RULE.overload;
+      out.push(noticeHTML('overload', 'notice-alert',
+        'Overload in ' + olIdx.length + ' of ' + plural(rows.length, 'hour', 'hours'),
+        'Demand reaches ' + fmt(pr.predicted_demand_kw) + ' kW at ' + hourLabel(pr.timestamp) + ', ' + fmt(over) +
+        ' kW above the 200 kW limit. First overload hour: ' + hourLabel(rows[olIdx[0]].timestamp) + '.',
+        pk, 'overload notice'));
     }
-    const socs = state.rows.map((r) => num(r.battery_soc_pct));
-    const minSoc = Number.isFinite(num(state.summary && state.summary.min_soc_pct)) ? num(state.summary.min_soc_pct) : Math.min(...socs);
-    if (Number.isFinite(minSoc) && minSoc < RULE.lowSoc && !state.dismissed.has('soc')) {
-      const i = socs.indexOf(Math.min(...socs));
-      items.push({
-        key: 'soc', cls: 'warn', ic: 'i-battery', jump: i,
-        title: `Battery reserve low — SoC falls to ${fmt(minSoc)}%${i >= 0 ? ` at ${hourLabel(state.rows[i].timestamp)}` : ''}`,
-        sub: `Below the ${RULE.lowSoc}% reserve floor on a ${BATTERY.capacity_kwh} kWh bank. Expect the main grid to cover storage hours after depletion.`,
-      });
+    var minSoc = Infinity, minI = -1, firstLow = -1;
+    rows.forEach(function (r, i) {
+      var v = num(r.battery_soc_pct);
+      if (!isFinite(v)) return;
+      if (v < minSoc) { minSoc = v; minI = i; }
+      if (v < RULE.reserve && firstLow < 0) firstLow = i;
+    });
+    if (firstLow >= 0 && !state.dismissed.reserve) {
+      out.push(noticeHTML('reserve', 'notice-warn',
+        'Battery below the 20% reserve from ' + hourLabel(rows[firstLow].timestamp),
+        'Charge falls to ' + fmt(minSoc, 0) + '% at ' + hourLabel(rows[minI].timestamp) + '. The main grid covers the shortfall while the battery is low.',
+        firstLow, 'battery reserve notice'));
     }
-    const warns = (state.cleaning && state.cleaning.warnings) || [];
-    if (warns.length && !state.dismissed.has('clean')) {
-      items.push({ key: 'clean', cls: 'warn', ic: 'i-db', jump: -1, title: `Input data needed cleaning — ${warns.length} warning${warns.length > 1 ? 's' : ''}`, sub: warns.slice(0, 2).join(' · ') });
-    }
-    box.innerHTML = items.map((b) => `
-      <div class="banner ${b.cls}" role="${b.cls === 'critical' ? 'alert' : 'status'}" data-key="${b.key}">
-        ${icon(b.ic, 'b-ic')}
-        <div class="b-body"><div class="b-title">${esc(b.title)}</div><div class="b-sub">${esc(b.sub)}</div></div>
-        <div class="b-actions">
-          ${b.jump >= 0 ? `<button class="btn sm ${b.cls === 'critical' ? 'danger-ghost' : 'ghost'}" type="button" data-jump="${b.jump}">View hour</button>` : ''}
-          <button class="btn icon-btn xs" type="button" data-dismiss="${b.key}" aria-label="Dismiss alert">${icon('i-x')}</button>
-        </div>
-      </div>`).join('');
+    $('#notices').innerHTML = out.join('');
+  }
+  function noticeHTML(key, cls, title, body, idx, name) {
+    var t = hourLabel(state.rows[idx].timestamp);
+    return '<div class="notice ' + cls + '" data-key="' + key + '">' +
+      '<div><p class="notice-title">' + esc(title) + '</p><p>' + esc(body) + '</p></div>' +
+      '<div class="notice-actions">' +
+      '<button type="button" class="btn-text" data-view="' + idx + '" aria-label="View hour ' + t + '">View hour</button>' +
+      '<button type="button" class="btn-icon" data-dismiss="' + key + '" aria-label="Dismiss ' + name + '">' + X_ICON + '</button>' +
+      '</div></div>';
   }
 
-  function renderKPIs() {
-    const s = state.summary || {};
-    $('#k-peak').textContent = fmt(s.peak_demand_kw);
-    $('#k-peak-hour').textContent = s.peak_hour ? `at ${hourLabel(s.peak_hour)}` : '';
-    $('#k-energy').textContent = fmtInt(s.total_energy_kwh);
-    $('#k-avg').textContent = `avg ${fmt(s.avg_demand_kw)} kW`;
-    $('#k-storage').textContent = fmtInt(s.storage_hours);
-    $('#k-grid').textContent = fmtInt(s.grid_hours);
-    const tot = num(s.storage_hours) + num(s.grid_hours);
-    $('#k-split').style.width = tot > 0 ? `${(num(s.storage_hours) / tot) * 100}%` : '0';
-    $('#k-trans').textContent = fmtInt(s.transitions);
-    $('#k-over').textContent = fmtInt(s.overload_hours);
-    $('#k-soc').textContent = fmt(s.min_soc_pct);
-    $('#kpi-overload').classList.toggle('hot', num(s.overload_hours) > 0);
-    $('#kpi-soc').classList.toggle('low', num(s.min_soc_pct) < RULE.lowSoc);
-  }
-
-  function renderTimeline() {
-    const max = Math.max(RULE.overload * 1.1, ...state.rows.map((r) => num(r.predicted_demand_kw)).filter(Number.isFinite));
-    $('#timeline').innerHTML = state.rows.map((r, i) => {
-      const d = num(r.predicted_demand_kw);
-      const h = Math.max(6, Math.min(100, (d / max) * 100));
-      const mode = isStorage(r) ? 'storage' : 'grid';
-      const label = `${hourLabel(r.timestamp)}, ${fmt(d)} kW, ${mode === 'storage' ? 'renewable storage' : 'main grid'}${r.overload_alert ? ', critical overload' : ''}`;
-      return `<button type="button" role="option" class="tl-cell ${mode}${r.overload_alert ? ' over' : ''}${inWindow(r.timestamp) ? ' peak-window' : ''}" data-i="${i}" aria-label="${esc(label)}" aria-selected="false">
-        <span class="tl-fill" style="height:${h.toFixed(0)}%"></span>
-        ${r.overload_alert ? '<span class="tl-alert" aria-hidden="true"></span>' : ''}
-        <span>${pad(hourNum(r.timestamp))}</span>
-      </button>`;
+  function renderStrip() {
+    var strip = $('#strip');
+    strip.style.setProperty('--n', state.rows.length);
+    strip.innerHTML = state.rows.map(function (r, i) {
+      var label = hourLabel(r.timestamp) + ', ' + (isStorage(r) ? 'battery storage' : 'main grid') + ', ' + fmt(r.predicted_demand_kw) + ' kW' + (r.overload_alert ? ', overload' : '');
+      return '<div class="cell ' + (isStorage(r) ? 'storage' : 'grid') + (r.overload_alert ? ' ol' : '') + '" role="option" id="cell-' + i + '" data-i="' + i + '" tabindex="-1" aria-selected="false" aria-label="' + esc(label) + '">' +
+        '<span aria-hidden="true">' + hourLabel(r.timestamp).slice(0, 2) + '</span><span class="bar" aria-hidden="true"></span></div>';
     }).join('');
   }
 
-  function showTip(cell) {
-    const r = state.rows[+cell.dataset.i];
-    if (!r) return;
-    const tip = $('#tl-tip');
-    const mode = isStorage(r) ? '<span class="mb storage">STORAGE</span>' : '<span class="mb grid">GRID</span>';
-    const reasons = Array.isArray(r.reasons) && r.reasons.length ? `<ul>${r.reasons.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : '';
-    tip.innerHTML = `<div class="tt-head"><span class="mono">${esc(hourLabel(r.timestamp))}</span>${mode}</div>
-      <div class="tt-row mono">${fmt(r.predicted_demand_kw)} kW · SoC ${fmt(r.battery_soc_pct)}% · solar ${fmt(r.solar_generation_kw)} kW</div>
-      ${r.overload_alert ? `<div class="tt-row" style="color:var(--red);font-weight:700;margin-top:4px">Critical overload (&ge; ${RULE.overload} kW)</div>` : ''}
-      ${reasons}`;
-    tip.hidden = false;
-    const b = cell.getBoundingClientRect();
-    const tw = tip.offsetWidth, th = tip.offsetHeight;
-    let left = b.left + b.width / 2 - tw / 2;
-    left = Math.max(8, Math.min(window.innerWidth - tw - 8, left));
-    let top = b.top - th - 8;
-    if (top < 60) top = b.bottom + 8;
-    tip.style.left = `${left}px`;
-    tip.style.top = `${top}px`;
+  function destroyCharts() {
+    Object.keys(state.charts).forEach(function (k) {
+      try { if (state.charts[k] && state.charts[k].destroy) state.charts[k].destroy(); } catch (e) { /* ignore */ }
+    });
+    state.charts = {};
   }
-  function hideTip() { $('#tl-tip').hidden = true; }
+  function mountChart(key, el, make) {
+    el.innerHTML = '';
+    if (!window.GPCharts) {
+      el.innerHTML = '<p class="chart-na">Chart unavailable. The figures and tables on this page carry the same data.</p>';
+      return;
+    }
+    try { state.charts[key] = make(window.GPCharts, el) || null; }
+    catch (e) {
+      if (window.console) console.warn('GridPilot chart "' + key + '" failed:', e);
+      el.innerHTML = '<p class="chart-na">Chart unavailable. The figures and tables on this page carry the same data.</p>';
+    }
+  }
+  function renderCharts() {
+    destroyCharts();
+    var rows = state.rows;
+    if (!rows.length) return;
+    mountChart('forecast', $('#chart-forecast'), function (G, el) {
+      return G.forecast(el, rows, {
+        onHover: function () { /* hover preview is drawn by the chart itself */ },
+        onSelect: function (i) { if (typeof i === 'number' && i >= 0) { stopPlay(); select(i, { announce: true }); } }
+      });
+    });
+    mountChart('battery', $('#chart-battery'), function (G, el) { return G.battery(el, rows); });
+    mountChart('temperature', $('#chart-temp'), function (G, el) { return G.temperature(el, rows); });
+    state.chartWidth = $('#chart-forecast').clientWidth;
+    var fc = state.charts.forecast;
+    if (fc && fc.setActive) { try { fc.setActive(state.sel); } catch (e) { /* ignore */ } }
+  }
+
+  function renderFigures() {
+    var s = state.summary, rows = state.rows, n = rows.length;
+    $('#f-peak').textContent = fmtInt(s.peak_demand_kw);
+    $('#f-peak-sub').textContent = 'at ' + hourLabel(s.peak_hour) + ', ' + stamp(s.peak_hour).split(' ').slice(0, 2).join(' ');
+    $('#f-energy').textContent = fmtInt(s.total_energy_kwh);
+    $('#f-energy-sub').textContent = 'average ' + fmt(s.avg_demand_kw) + ' kW';
+    $('#f-split').textContent = (s.storage_hours | 0) + ' / ' + (s.grid_hours | 0);
+    $('#f-split-bar').style.width = (n ? Math.round(100 * (s.storage_hours | 0) / n) : 0) + '%';
+    $('#f-split-sub').textContent = 'battery storage / main grid';
+    $('#f-switch').textContent = String(s.transitions | 0);
+    $('#f-over').textContent = String(s.overload_hours | 0);
+    var minSoc = num(s.min_soc_pct);
+    $('#f-soc').textContent = fmt(minSoc, 0);
+    var low = isFinite(minSoc) && minSoc < RULE.reserve;
+    $('#fig-soc').classList.toggle('is-low', low);
+    var at = -1;
+    rows.forEach(function (r, i) { if (at < 0 && num(r.battery_soc_pct) === minSoc) at = i; });
+    $('#f-soc-sub').textContent = (low ? 'below the 20% reserve' : '500 kWh bank') + (at >= 0 ? ', ' + hourLabel(rows[at].timestamp) : '');
+    $('#table-count').textContent = String(n);
+  }
 
   function renderSignals() {
-    const ol = $('#signals');
-    $('#sig-count').textContent = String(state.signals.length);
-    if (!state.signals.length) { ol.innerHTML = '<li class="empty">No dispatch events in this horizon</li>'; return; }
-    const map = {
-      SWITCH_TO_STORAGE: { cls: 'storage', ic: 'i-battery', txt: 'TO STORAGE' },
-      SWITCH_TO_GRID: { cls: 'grid', ic: 'i-pylon', txt: 'TO GRID' },
-      OVERLOAD_ALERT: { cls: 'alert', ic: 'i-alert', txt: 'OVERLOAD' },
-    };
-    ol.innerHTML = state.signals.map((s) => {
-      const m = map[s.event] || { cls: 'grid', ic: 'i-switch', txt: s.event };
-      const i = state.rows.findIndex((r) => r.timestamp === s.timestamp);
-      return `<li data-i="${i}" tabindex="0" role="button" aria-label="${esc(`${hourLabel(s.timestamp)} ${s.event}: ${s.detail || ''}`)}"><span class="t">${esc(hourLabel(s.timestamp))}</span><span class="ev ${m.cls}">${icon(m.ic, '')}${esc(m.txt)}</span><span class="d">${esc(s.detail || '')}</span></li>`;
+    var body = $('#signals-body');
+    var sig = state.signals;
+    $('#signals-count').textContent = plural(sig.length, 'event', 'events');
+    if (!sig.length) { body.innerHTML = '<tr><td colspan="3" class="empty">No dispatch events in this forecast.</td></tr>'; return; }
+    body.innerHTML = sig.map(function (s) {
+      var i = indexOfTs(s.timestamp);
+      var ev = s.event;
+      var mark = ev === 'OVERLOAD_ALERT' ? 'mark-overload' : ev === 'SWITCH_TO_STORAGE' ? 'mark-storage' : 'mark-grid';
+      var time = i >= 0
+        ? '<button type="button" class="btn-time" data-view="' + i + '" aria-label="View hour ' + stamp(s.timestamp) + '">' + esc(stamp(s.timestamp)) + '</button>'
+        : esc(stamp(s.timestamp));
+      return '<tr data-i="' + i + '"><td class="time">' + time + '</td><td><span class="ev' + (ev === 'OVERLOAD_ALERT' ? ' ev-alert' : '') + '"><span class="mark ' + mark + '" aria-hidden="true"></span>' +
+        esc(EVENT_WORDS[ev] || ev) + '</span></td><td>' + esc(cap(s.detail)) + '</td></tr>';
     }).join('');
-  }
-
-  function renderCleaning() {
-    const c = state.cleaning;
-    const box = $('#cleaning');
-    if (!c) { box.innerHTML = '<p class="muted">No cleaning report returned for this run.</p>'; return; }
-    const tags = (obj) => Object.entries(obj || {}).filter(([, n]) => num(n) > 0).map(([k, n]) => `<span class="c-tag">${esc(k)} ×${esc(n)}</span>`).join('');
-    const imp = tags(c.imputed), clip = tags(c.clipped);
-    const warns = Array.isArray(c.warnings) ? c.warnings : [];
-    const clean = !imp && !clip && !warns.length && !num(c.dropped);
-    box.innerHTML = `
-      <div class="c-stats">
-        <div class="c-stat"><span>Rows in</span><b>${fmtInt(c.rows_in)}</b></div>
-        <div class="c-stat"><span>Rows out</span><b>${fmtInt(c.rows_out)}</b></div>
-        <div class="c-stat"><span>Dropped</span><b style="color:${num(c.dropped) > 0 ? 'var(--amber)' : 'inherit'}">${fmtInt(c.dropped)}</b></div>
-      </div>
-      <p class="c-line">Imputed: ${imp || '<span>none</span>'}</p>
-      <p class="c-line">Clipped: ${clip || '<span>none</span>'}</p>
-      ${warns.length ? `<ul class="c-warn">${warns.map((w) => `<li>${esc(w)}</li>`).join('')}</ul>` : ''}
-      ${clean ? `<p class="c-ok">${icon('i-check')}Input passed validation with no fixes needed</p>` : ''}`;
   }
 
   function renderTable() {
-    $('#table-count').textContent = `${state.rows.length} rows`;
-    $('#ftable-body').innerHTML = state.rows.map((r, i) => {
-      const st = isStorage(r);
-      return `<tr data-i="${i}" class="${r.overload_alert ? 'over' : ''}">
-        <td class="mono">${esc(hourLabel(r.timestamp))}</td>
-        <td class="num">${fmt(r.ambient_temp_c)}</td>
-        <td class="num">${fmt(r.humidity_pct)}</td>
-        <td class="num">${fmt(r.solar_irradiance_wm2, 0)}</td>
-        <td class="num">${fmt(r.solar_generation_kw)}</td>
-        <td class="num" style="font-weight:700;${num(r.predicted_demand_kw) >= RULE.overload ? 'color:var(--red)' : ''}">${fmt(r.predicted_demand_kw)}</td>
-        <td>${st ? `<span class="mb storage">${icon('i-battery', '')}STORAGE</span>` : `<span class="mb grid">${icon('i-pylon', '')}GRID</span>`}</td>
-        <td class="num">${fmt(r.battery_soc_pct)}</td>
-        <td>${r.overload_alert ? `<span class="mb alert">${icon('i-alert', '')}OVERLOAD</span>` : '<span class="muted">—</span>'}</td>
-        <td class="reasons-cell">${esc((r.reasons || []).join('; '))}</td>
-      </tr>`;
+    $('#table-body').innerHTML = state.rows.map(function (r, i) {
+      return '<tr data-i="' + i + '">' +
+        '<td class="time"><button type="button" class="btn-time" data-view="' + i + '" aria-label="View hour ' + stamp(r.timestamp) + '">' + esc(stamp(r.timestamp)) + '</button></td>' +
+        '<td><span class="mode-cell">' + modeHTML(r) + '</span></td>' +
+        '<td class="num">' + fmt(r.predicted_demand_kw) + '</td>' +
+        '<td>' + (r.overload_alert ? '<span class="yes"><span class="mark mark-overload" aria-hidden="true"></span>Yes</span>' : 'No') + '</td>' +
+        '<td class="num">' + fmt(r.battery_soc_pct, 0) + '</td>' +
+        '<td class="num">' + fmt(r.solar_generation_kw) + '</td>' +
+        '<td class="num">' + fmt(r.ambient_temp_c) + '</td>' +
+        '<td class="reasons-cell">' + esc((r.reasons || []).map(cap).join('; ')) + '</td></tr>';
     }).join('');
   }
 
-  /* ---------- selection / status strip ---------- */
-  function select(i, fromUser = false) {
-    if (!state.rows.length) return;
-    i = Math.max(0, Math.min(state.rows.length - 1, i | 0));
-    state.sel = i;
-    if (fromUser) stopPlay();
-    const r = state.rows[i];
-    const prev = state.rows[i - 1];
-    const st = isStorage(r);
-    const d = num(r.predicted_demand_kw);
-
-    $('#strip-hour').textContent = hourLabel(r.timestamp);
-    $('#hour-range').value = String(i);
-    $('#hour-range').setAttribute('aria-valuetext', `${hourLabel(r.timestamp)}, ${fmt(d)} kilowatts`);
-
-    // Mode tile
-    const tile = $('#mode-tile');
-    tile.classList.toggle('is-storage', st);
-    tile.classList.toggle('is-grid', !st);
-    tile.querySelector('.mode-icon').innerHTML = `<svg aria-hidden="true"><use href="#${st ? 'i-battery' : 'i-pylon'}"/></svg>`;
-    $('#mode-name').textContent = st ? 'Renewable Storage' : 'Main Grid';
-    $('#mode-code').textContent = r.grid_mode || '--';
-    let a = i; while (a > 0 && state.rows[a - 1].grid_mode === r.grid_mode) a--;
-    let b = i; while (b < state.rows.length - 1 && state.rows[b + 1].grid_mode === r.grid_mode) b++;
-    const nextSwitch = b < state.rows.length - 1 ? `next switch ${hourLabel(state.rows[b + 1].timestamp)}` : 'holds to end of horizon';
-    $('#mode-since').textContent = `Active since ${hourLabel(state.rows[a].timestamp)} · ${nextSwitch}`;
-
-    // Demand
-    $('#demand-now').textContent = fmt(d);
-    const scaleMax = 250;
-    const fill = $('#load-fill');
-    fill.style.width = `${Math.max(2, Math.min(100, (d / scaleMax) * 100))}%`;
-    fill.className = 'load-fill' + (d >= RULE.overload ? ' over' : st ? ' storage' : '');
-    if (prev) {
-      const delta = d - num(prev.predicted_demand_kw);
-      $('#demand-delta').textContent = `${delta >= 0 ? '+' : '−'}${Math.abs(delta).toFixed(1)} kW vs ${hourLabel(prev.timestamp)} · ${fmt(r.ambient_temp_c)} °C`;
-    } else {
-      $('#demand-delta').textContent = `first hour · ${fmt(r.ambient_temp_c)} °C ambient`;
-    }
-
-    // SoC
-    const soc = num(r.battery_soc_pct);
-    const circ = 2 * Math.PI * 32;
-    const arc = $('#soc-arc');
-    arc.style.strokeDasharray = `${circ}`;
-    arc.style.strokeDashoffset = `${circ * (1 - Math.max(0, Math.min(100, Number.isFinite(soc) ? soc : 0)) / 100)}`;
-    $('#soc-now').textContent = fmt(soc);
-    $('#soc-kwh').textContent = Number.isFinite(soc) ? `${fmtInt((soc / 100) * BATTERY.capacity_kwh)} / ${BATTERY.capacity_kwh} kWh` : '';
-    document.querySelector('.soc-tile').classList.toggle('low', soc < RULE.lowSoc);
-    $('#solar-now').textContent = `Solar ${fmt(r.solar_generation_kw)} kW · ${fmt(r.solar_irradiance_wm2, 0)} W/m²`;
-
-    // Overload
-    const olTile = $('#overload-tile');
-    const over = !!r.overload_alert;
-    olTile.classList.toggle('alarm', over);
-    $('#ol-state').innerHTML = `${icon(over ? 'i-alert' : 'i-check')}<span>${over ? 'CRITICAL OVERLOAD' : 'Nominal'}</span>`;
-    const margin = RULE.overload - d;
-    $('#ol-margin').textContent = Number.isFinite(margin) ? (margin > 0 ? `${margin.toFixed(1)} kW headroom to ${RULE.overload} kW` : `${Math.abs(margin).toFixed(1)} kW over the ${RULE.overload} kW limit`) : '';
-
-    // Reasons
-    const reasons = Array.isArray(r.reasons) && r.reasons.length ? r.reasons : [st ? 'Storage rule matched' : 'No storage trigger: demand at or below 160 kW outside 18:00–22:00'];
-    $('#reasons').innerHTML = reasons.map((x) => `<li>${esc(x)}</li>`).join('');
-
-    // Timeline + table highlight
-    document.querySelectorAll('.tl-cell').forEach((c) => {
-      const on = +c.dataset.i === i;
-      c.classList.toggle('active', on);
-      c.setAttribute('aria-selected', on ? 'true' : 'false');
-    });
-    document.querySelectorAll('#ftable-body tr').forEach((tr) => tr.classList.toggle('sel', +tr.dataset.i === i));
-
-    // Charts marker
-    Object.values(state.charts).forEach((ch) => { try { ch.update('none'); } catch { /* noop */ } });
+  function countMap(obj) {
+    var keys = Object.keys(obj || {});
+    if (!keys.length) return '0';
+    return keys.map(function (k) { return (COL_NAMES[k] || k) + ' ' + obj[k]; }).join(', ');
+  }
+  function renderCheck() {
+    var c = state.cleaning, el = $('#check-body');
+    if (!c) { el.innerHTML = '<p class="muted">Shown after each forecast run.</p>'; return; }
+    var warnings = Array.isArray(c.warnings) ? c.warnings : [];
+    el.innerHTML =
+      '<p class="check-src">Input: ' + esc(state.label || 'unknown') + '</p>' +
+      '<dl class="check-list">' +
+      '<div><dt>Rows received</dt><dd>' + esc(c.rows_in) + '</dd></div>' +
+      '<div><dt>Rows used</dt><dd>' + esc(c.rows_out) + '</dd></div>' +
+      '<div><dt>Dropped</dt><dd>' + esc(c.dropped) + '</dd></div>' +
+      '<div><dt>Imputed</dt><dd>' + esc(countMap(c.imputed)) + '</dd></div>' +
+      '<div><dt>Clipped</dt><dd>' + esc(countMap(c.clipped)) + '</dd></div>' +
+      '</dl>' +
+      (warnings.length
+        ? '<h4 class="sr-only">Warnings</h4><ul class="check-warn">' + warnings.map(function (w) { return '<li>' + esc(cap(w)) + '</li>'; }).join('') + '</ul>'
+        : '<p class="check-src">No problems found in the input.</p>');
   }
 
+  /* ---------- selection (single source of truth) ---------- */
+  function select(i, opts) {
+    opts = opts || {};
+    var rows = state.rows;
+    if (!rows.length) return;
+    i = Math.max(0, Math.min(rows.length - 1, i | 0));
+    state.sel = i;
+    var r = rows[i];
+
+    $('#insp-time').textContent = hourLabel(r.timestamp);
+    $('#insp-date').textContent = dayLabel(r.timestamp) + ' · hour ' + (i + 1) + ' of ' + rows.length;
+    $('#insp-mode').innerHTML = modeHTML(r);
+    $('#insp-demand').textContent = fmt(r.predicted_demand_kw);
+    var d = num(r.predicted_demand_kw);
+    var ol = $('#insp-overload');
+    if (r.overload_alert) {
+      ol.className = 'insp-overload is-over';
+      ol.innerHTML = '<span class="mark mark-overload" aria-hidden="true"></span>Overload: ' + fmt(d - RULE.overload) + ' kW above the 200 kW limit';
+    } else {
+      ol.className = 'insp-overload';
+      ol.textContent = 'No overload: ' + fmt(RULE.overload - d) + ' kW below the 200 kW limit';
+    }
+    var reasons = (r.reasons || []).length ? r.reasons : [isStorage(r) ? 'Storage rule met' : 'Demand at or below 160 kW and outside 18:00–22:00'];
+    $('#insp-reasons').innerHTML = reasons.map(function (x) { return '<li>' + esc(cap(x)) + '</li>'; }).join('');
+    var soc = num(r.battery_soc_pct);
+    var socEl = $('#insp-soc');
+    socEl.textContent = fmt(soc, 0) + ' %' + (soc < RULE.reserve ? ' (below reserve)' : '');
+    socEl.classList.toggle('is-low', soc < RULE.reserve);
+    $('#insp-solar').textContent = fmt(r.solar_generation_kw) + ' kW';
+    $('#insp-temp').textContent = fmt(r.ambient_temp_c) + ' °C';
+    $('#insp-hum').textContent = fmt(r.humidity_pct, 0) + ' %';
+    $('#btn-prev').disabled = i === 0;
+    $('#btn-next').disabled = i === rows.length - 1;
+
+    $$('#strip .cell').forEach(function (c, k) {
+      var on = k === i;
+      c.setAttribute('aria-selected', on ? 'true' : 'false');
+      c.tabIndex = on ? 0 : -1;
+    });
+    var cell = $('#cell-' + i);
+    if (cell && !opts.silent) {
+      var sc = cell.parentNode.parentNode;
+      var left = cell.offsetLeft, right = left + cell.offsetWidth;
+      if (left < sc.scrollLeft || right > sc.scrollLeft + sc.clientWidth) sc.scrollLeft = left - sc.clientWidth / 2;
+    }
+
+    $$('#table-body tr, #signals-body tr').forEach(function (tr) {
+      tr.classList.toggle('is-active', +tr.getAttribute('data-i') === i);
+    });
+
+    var fc = state.charts.forecast;
+    if (fc && fc.setActive) { try { fc.setActive(i); } catch (e) { /* ignore */ } }
+
+    if (opts.announce) {
+      $('#insp-live').textContent = hourLabel(r.timestamp) + ': ' + (isStorage(r) ? 'battery storage' : 'main grid') + ', ' +
+        fmt(d) + ' kW' + (r.overload_alert ? ', overload' : '');
+    }
+  }
+
+  /* ---------- replay ---------- */
   function startPlay() {
-    if (!state.rows.length) return;
-    stopPlay();
+    if (reduceMotion.matches || !state.rows.length) return;
+    if (state.sel >= state.rows.length - 1) select(0);
     state.playing = true;
-    state.timer = setInterval(() => select((state.sel + 1) % state.rows.length), STEP_MS);
+    state.timer = setInterval(function () {
+      if (state.sel >= state.rows.length - 1) { stopPlay(); return; }
+      select(state.sel + 1);
+    }, STEP_MS);
     updatePlayUI();
   }
   function stopPlay() {
-    state.playing = false;
     clearInterval(state.timer);
     state.timer = null;
+    state.playing = false;
     updatePlayUI();
   }
   function updatePlayUI() {
-    const b = $('#play-btn');
-    b.innerHTML = icon(state.playing ? 'i-pause' : 'i-play');
-    b.setAttribute('aria-label', state.playing ? 'Pause live replay' : 'Start live replay');
-    b.setAttribute('aria-pressed', state.playing ? 'true' : 'false');
-    const tag = $('#live-tag');
-    tag.classList.toggle('on', state.playing);
-    tag.lastChild.textContent = state.playing ? 'Live replay' : 'Paused';
+    var btn = $('#btn-play');
+    btn.setAttribute('aria-pressed', state.playing ? 'true' : 'false');
+    $('#play-label').textContent = state.playing ? 'Pause replay' : 'Replay day';
+    btn.disabled = !!reduceMotion.matches;
+    $('#play-note').textContent = reduceMotion.matches
+      ? 'Replay is off because your system is set to reduce motion. Use Previous and Next instead.'
+      : 'Steps through the day, one hour every 1.5 seconds.';
   }
 
-  /* ---------- charts ---------- */
-  let hatch = null;
-  function hatchPattern(ctx) {
-    if (hatch) return hatch;
-    const c = document.createElement('canvas');
-    c.width = 8; c.height = 8;
-    const x = c.getContext('2d');
-    x.strokeStyle = 'rgba(203, 213, 225, 0.16)';
-    x.lineWidth = 1.5;
-    x.beginPath(); x.moveTo(0, 8); x.lineTo(8, 0); x.moveTo(-2, 2); x.lineTo(2, -2); x.moveTo(6, 10); x.lineTo(10, 6); x.stroke();
-    hatch = ctx.createPattern(c, 'repeat');
-    return hatch;
+  /* ---------- manual entry ---------- */
+  function manualRowHTML(r, n) {
+    r = r || {};
+    function v(k) { return r[k] === null || r[k] === undefined ? '' : esc(r[k]); }
+    return '<tr>' +
+      '<td class="idx">' + n + '</td>' +
+      '<td><input class="ts" type="text" data-col="timestamp" value="' + v('timestamp') + '" placeholder="YYYY-MM-DD HH:MM" aria-label="Row ' + n + ' timestamp" spellcheck="false" autocomplete="off"></td>' +
+      '<td><input class="n" type="text" inputmode="decimal" data-col="ambient_temp_c" value="' + v('ambient_temp_c') + '" aria-label="Row ' + n + ' temperature, °C"></td>' +
+      '<td><input class="n" type="text" inputmode="decimal" data-col="humidity_pct" value="' + v('humidity_pct') + '" aria-label="Row ' + n + ' humidity, %"></td>' +
+      '<td><input class="n" type="text" inputmode="decimal" data-col="solar_irradiance_wm2" value="' + v('solar_irradiance_wm2') + '" aria-label="Row ' + n + ' irradiance, W/m²"></td>' +
+      '<td><button type="button" class="btn-icon row-del" aria-label="Remove row ' + n + '">' + X_ICON + '</button></td>' +
+      '</tr>';
   }
-  function bandX(chart, i) {
-    const x = chart.scales.x;
-    const n = state.rows.length;
-    const p = x.getPixelForValue(i);
-    const step = n > 1 ? Math.abs(x.getPixelForValue(1) - x.getPixelForValue(0)) : chart.chartArea.right - chart.chartArea.left;
-    return [Math.max(chart.chartArea.left, p - step / 2), Math.min(chart.chartArea.right, p + step / 2)];
+  function fillManual(rows) {
+    $('#manual-body').innerHTML = rows.map(function (r, i) { return manualRowHTML(r, i + 1); }).join('');
+    $('#manual-errors').innerHTML = '';
+    updateManualCount();
   }
-
-  const bandsPlugin = {
-    id: 'gpBands',
-    beforeDatasetsDraw(chart, _args, opts) {
-      if (!state.rows.length || !chart.scales.x) return;
-      const { ctx, chartArea: { top, bottom } } = chart;
-      ctx.save();
-      if (opts.storage) {
-        ctx.fillStyle = 'rgba(45, 212, 191, 0.075)';
-        state.rows.forEach((r, i) => { if (isStorage(r)) { const [l, rr] = bandX(chart, i); ctx.fillRect(l, top, rr - l, bottom - top); } });
-      }
-      if (opts.window) {
-        const idx = state.rows.map((r, i) => (inWindow(r.timestamp) ? i : -1)).filter((i) => i >= 0);
-        if (idx.length) {
-          const [l] = bandX(chart, idx[0]);
-          const [, rr] = bandX(chart, idx[idx.length - 1]);
-          ctx.fillStyle = hatchPattern(ctx);
-          ctx.fillRect(l, top, rr - l, bottom - top);
-          ctx.strokeStyle = 'rgba(203, 213, 225, 0.22)';
-          ctx.setLineDash([3, 3]);
-          ctx.beginPath(); ctx.moveTo(l + 0.5, top); ctx.lineTo(l + 0.5, bottom); ctx.moveTo(rr - 0.5, top); ctx.lineTo(rr - 0.5, bottom); ctx.stroke();
-          ctx.setLineDash([]);
-          ctx.fillStyle = 'rgba(203, 213, 225, 0.7)';
-          ctx.font = '600 10px "JetBrains Mono", monospace';
-          ctx.textAlign = 'center';
-          ctx.fillText('18–22 WINDOW', (l + rr) / 2, top + 12);
-        }
-      }
-      ctx.restore();
-    },
-    afterDatasetsDraw(chart, _args, opts) {
-      if (!state.rows.length || !chart.scales.x) return;
-      const { ctx, chartArea: { top, bottom, right } } = chart;
-      ctx.save();
-      if (opts.thresholds && chart.scales.y) {
-        const y = chart.scales.y;
-        ctx.font = '600 10.5px "JetBrains Mono", monospace';
-        ctx.textAlign = 'right';
-        [[RULE.storage, C.teal, '160 kW STORAGE'], [RULE.overload, C.redSoft, '200 kW OVERLOAD']].forEach(([v, col, txt]) => {
-          const py = y.getPixelForValue(v);
-          if (py < top || py > bottom) return;
-          ctx.fillStyle = col;
-          ctx.fillText(txt, right - 6, py - 5);
-        });
-      }
-      if (opts.marker) {
-        const x = chart.scales.x.getPixelForValue(state.sel);
-        ctx.strokeStyle = 'rgba(230, 237, 243, 0.55)';
-        ctx.lineWidth = 1;
-        ctx.setLineDash([4, 4]);
-        ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, bottom); ctx.stroke();
-      }
-      ctx.restore();
-    },
-  };
-
-  function baseScales(yOpts = {}) {
-    return {
-      x: {
-        offset: true,
-        grid: { color: C.grid, drawTicks: false },
-        border: { color: 'rgba(148,163,184,0.2)' },
-        ticks: { color: C.muted, maxRotation: 0, autoSkip: true, autoSkipPadding: 10, padding: 6, font: { family: 'JetBrains Mono', size: 10.5 } },
-      },
-      y: {
-        grid: { color: C.grid, drawTicks: false },
-        border: { display: false },
-        ticks: { color: C.muted, padding: 8, font: { family: 'JetBrains Mono', size: 10.5 } },
-        ...yOpts,
-      },
-    };
+  function renumber() {
+    $$('#manual-body tr').forEach(function (tr, i) {
+      var n = i + 1;
+      tr.querySelector('.idx').textContent = n;
+      var ins = tr.querySelectorAll('input');
+      ins[0].setAttribute('aria-label', 'Row ' + n + ' timestamp');
+      ins[1].setAttribute('aria-label', 'Row ' + n + ' temperature, °C');
+      ins[2].setAttribute('aria-label', 'Row ' + n + ' humidity, %');
+      ins[3].setAttribute('aria-label', 'Row ' + n + ' irradiance, W/m²');
+      tr.querySelector('.row-del').setAttribute('aria-label', 'Remove row ' + n);
+    });
+    updateManualCount();
   }
-  const tooltipBase = {
-    backgroundColor: '#0F151D', borderColor: 'rgba(148,163,184,0.3)', borderWidth: 1, padding: 10,
-    titleFont: { family: 'JetBrains Mono', weight: '700' }, bodyFont: { family: 'Inter' },
-    titleColor: C.text, bodyColor: '#B8C4D2', displayColors: true, boxPadding: 4,
-  };
-
-  function renderCharts() {
-    if (typeof window.Chart === 'undefined') {
-      ['#chart-load', '#chart-soc', '#chart-temp'].forEach((s) => {
-        const box = $(s).parentElement;
-        if (!box.querySelector('.chart-fallback')) box.insertAdjacentHTML('beforeend', '<div class="chart-fallback">Chart library could not load. The timeline, KPIs and table below still show the full forecast.</div>');
+  function updateManualCount() {
+    var n = $('#manual-body').children.length;
+    $('#manual-count').textContent = plural(n, 'row', 'rows');
+  }
+  function checkInput(input) {
+    var col = input.getAttribute('data-col');
+    var s = input.value.trim();
+    var msg = '';
+    if (col === 'timestamp') {
+      if (!s) msg = 'enter a timestamp as YYYY-MM-DD HH:MM';
+      else if (!parseTs(s)) msg = 'timestamp “' + s + '” is not in the form YYYY-MM-DD HH:MM';
+    } else if (s !== '') {
+      var lim = LIMITS[col], v = Number(s);
+      if (!isFinite(v)) msg = lim[2].toLowerCase() + ' “' + s + '” is not a number';
+      else if (v < lim[0] || v > lim[1]) msg = lim[2].toLowerCase() + ' must be between ' + lim[0] + ' and ' + lim[1] + ' ' + lim[3];
+    }
+    if (msg) input.setAttribute('aria-invalid', 'true'); else input.removeAttribute('aria-invalid');
+    return msg;
+  }
+  function validateManual() {
+    var rows = [], errors = [];
+    $$('#manual-body tr').forEach(function (tr, i) {
+      var ins = tr.querySelectorAll('input');
+      var empty = Array.prototype.every.call(ins, function (x) { return !x.value.trim(); });
+      if (empty) { Array.prototype.forEach.call(ins, function (x) { x.removeAttribute('aria-invalid'); }); return; }
+      var row = {};
+      Array.prototype.forEach.call(ins, function (input) {
+        var m = checkInput(input);
+        if (m) errors.push({ row: i + 1, msg: m, input: input });
+        var col = input.getAttribute('data-col'), s = input.value.trim();
+        row[col] = col === 'timestamp' ? s : (s === '' ? null : Number(s));
       });
-      return;
+      rows.push(row);
+    });
+    renderManualErrors(errors);
+    return { rows: rows, errors: errors };
+  }
+  function renderManualErrors(errors) {
+    var el = $('#manual-errors');
+    if (!errors.length) { el.innerHTML = ''; return; }
+    el.innerHTML = '<ul>' + errors.slice(0, 8).map(function (e) { return '<li><strong>Row ' + e.row + ':</strong> ' + esc(e.msg) + '.</li>'; }).join('') +
+      (errors.length > 8 ? '<li>…and ' + (errors.length - 8) + ' more.</li>' : '') + '</ul>';
+  }
+  function addRow() {
+    var body = $('#manual-body');
+    var last = body.lastElementChild;
+    var next = {};
+    if (last) {
+      var ins = last.querySelectorAll('input');
+      var d = parseTs(ins[0].value);
+      next = { timestamp: d ? fmtTs(new Date(d.getTime() + 3600000)) : '', ambient_temp_c: ins[1].value, humidity_pct: ins[2].value, solar_irradiance_wm2: ins[3].value };
+    } else {
+      var now = new Date(); now.setMinutes(0, 0, 0);
+      next = { timestamp: fmtTs(now) };
     }
-    const Chart = window.Chart;
-    Chart.defaults.font.family = 'Inter, system-ui, sans-serif';
-    Chart.defaults.color = C.muted;
-    Chart.defaults.animation.duration = 450;
-
-    const labels = state.rows.map((r) => hourLabel(r.timestamp));
-    const demand = state.rows.map((r) => num(r.predicted_demand_kw));
-    const peak = Math.max(...demand.filter(Number.isFinite), 0);
-    const yMax = Math.ceil(Math.max(230, peak * 1.12) / 10) * 10;
-    const onClick = (_e, els, chart) => {
-      if (els && els.length) { select(els[0].index, true); return; }
-      const ev = _e; if (!ev || !chart) return;
-      const v = chart.scales.x.getValueForPixel(ev.x);
-      if (Number.isFinite(v)) select(Math.round(v), true);
-    };
-
-    // 1. Load curve
-    const loadCfg = {
-      type: 'line',
-      data: {
-        labels,
-        datasets: [
-          {
-            label: 'Predicted demand (kW)', data: demand, borderWidth: 2.5, tension: 0.35, fill: 'origin',
-            backgroundColor: (ctx) => {
-              const { chart } = ctx; const { ctx: c, chartArea } = chart;
-              if (!chartArea) return 'rgba(96,165,250,0.1)';
-              const g = c.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
-              g.addColorStop(0, 'rgba(96,165,250,0.22)'); g.addColorStop(1, 'rgba(96,165,250,0)');
-              return g;
-            },
-            segment: { borderColor: (ctx) => (isStorage(state.rows[ctx.p1DataIndex]) ? C.teal : C.blue) },
-            borderColor: C.blue,
-            pointRadius: (ctx) => (state.rows[ctx.dataIndex]?.overload_alert ? 6 : ctx.dataIndex === state.sel ? 5 : 2.5),
-            pointHoverRadius: 7,
-            pointBackgroundColor: (ctx) => { const r = state.rows[ctx.dataIndex]; return r?.overload_alert ? C.red : isStorage(r) ? C.teal : C.blue; },
-            pointBorderColor: (ctx) => (state.rows[ctx.dataIndex]?.overload_alert ? 'rgba(239,68,68,0.35)' : '#0B0F14'),
-            pointBorderWidth: (ctx) => (state.rows[ctx.dataIndex]?.overload_alert ? 5 : 1.5),
-            order: 1,
-          },
-          { label: 'Storage threshold 160 kW', data: labels.map(() => RULE.storage), borderColor: C.teal, borderDash: [6, 5], borderWidth: 1.5, pointRadius: 0, pointHoverRadius: 0, fill: false, order: 2 },
-          { label: 'Overload limit 200 kW', data: labels.map(() => RULE.overload), borderColor: C.redSoft, borderDash: [6, 5], borderWidth: 1.5, pointRadius: 0, pointHoverRadius: 0, fill: false, order: 2 },
-        ],
-      },
-      options: {
-        responsive: true, maintainAspectRatio: false,
-        interaction: { mode: 'index', intersect: false },
-        onClick,
-        scales: baseScales({ min: 0, max: yMax, title: { display: true, text: 'kW', color: C.muted, font: { size: 11 } } }),
-        plugins: {
-          legend: { display: false },
-          gpBands: { storage: true, window: true, marker: true, thresholds: true },
-          tooltip: {
-            ...tooltipBase,
-            filter: (item) => item.datasetIndex === 0,
-            callbacks: {
-              label: (item) => ` Demand ${fmt(item.raw)} kW`,
-              afterLabel: (item) => {
-                const r = state.rows[item.dataIndex];
-                const lines = [` ${isStorage(r) ? 'Renewable storage' : 'Main grid'} · SoC ${fmt(r.battery_soc_pct)}%`];
-                if (r.overload_alert) lines.push(' CRITICAL OVERLOAD');
-                (r.reasons || []).slice(0, 3).forEach((x) => lines.push(` · ${x}`));
-                return lines;
-              },
-            },
-          },
-        },
-      },
-      plugins: [bandsPlugin],
-    };
-
-    // 2. SoC + solar
-    const socCfg = {
-      type: 'bar',
-      data: {
-        labels,
-        datasets: [
-          { type: 'line', label: 'Battery SoC (%)', data: state.rows.map((r) => num(r.battery_soc_pct)), borderColor: C.teal, backgroundColor: 'rgba(45,212,191,0.12)', fill: 'origin', tension: 0.3, borderWidth: 2.2, pointRadius: 0, pointHoverRadius: 5, yAxisID: 'y', order: 1 },
-          { type: 'line', label: 'Reserve 20%', data: labels.map(() => RULE.lowSoc), borderColor: C.amber, borderDash: [5, 5], borderWidth: 1.3, pointRadius: 0, pointHoverRadius: 0, fill: false, yAxisID: 'y', order: 2 },
-          { type: 'bar', label: 'Solar generation (kW)', data: state.rows.map((r) => num(r.solar_generation_kw)), backgroundColor: C.solar, borderRadius: 3, yAxisID: 'y1', order: 3, barPercentage: 0.7, categoryPercentage: 0.9 },
-        ],
-      },
-      options: {
-        responsive: true, maintainAspectRatio: false,
-        interaction: { mode: 'index', intersect: false },
-        onClick,
-        scales: {
-          ...baseScales({ min: 0, max: 100, ticks: { color: C.muted, padding: 8, callback: (v) => `${v}%`, font: { family: 'JetBrains Mono', size: 10.5 } } }),
-          y1: { position: 'right', min: 0, grid: { display: false }, border: { display: false }, ticks: { color: C.muted, padding: 6, callback: (v) => `${v} kW`, font: { family: 'JetBrains Mono', size: 10.5 } } },
-        },
-        plugins: {
-          legend: { display: false },
-          gpBands: { storage: true, window: false, marker: true },
-          tooltip: { ...tooltipBase, filter: (i) => i.datasetIndex !== 1, callbacks: { label: (i) => ` ${i.dataset.label}: ${fmt(i.raw)}` } },
-        },
-      },
-      plugins: [bandsPlugin],
-    };
-
-    // 3. Temp vs demand
-    const pts = state.rows.map((r) => ({ x: num(r.ambient_temp_c), y: num(r.predicted_demand_kw) }));
-    const tVals = pts.map((p) => p.x).filter(Number.isFinite);
-    const tMin = tVals.length ? Math.floor(Math.min(...tVals) - 1) : 0;
-    const tMax = tVals.length ? Math.ceil(Math.max(...tVals) + 1) : 40;
-    const tempCfg = {
-      type: 'scatter',
-      data: {
-        datasets: [
-          {
-            label: 'Hour', data: pts,
-            pointRadius: (ctx) => (ctx.dataIndex === state.sel ? 7 : 4.5),
-            pointHoverRadius: 7,
-            pointBackgroundColor: (ctx) => { const r = state.rows[ctx.dataIndex]; return r?.overload_alert ? C.red : isStorage(r) ? 'rgba(45,212,191,0.85)' : 'rgba(96,165,250,0.85)'; },
-            pointBorderColor: (ctx) => (ctx.dataIndex === state.sel ? '#fff' : 'rgba(11,15,20,0.9)'),
-            pointBorderWidth: (ctx) => (ctx.dataIndex === state.sel ? 2 : 1),
-          },
-          { type: 'line', label: '160 kW', data: [{ x: tMin, y: RULE.storage }, { x: tMax, y: RULE.storage }], borderColor: C.teal, borderDash: [5, 5], borderWidth: 1.2, pointRadius: 0, pointHoverRadius: 0 },
-          { type: 'line', label: '200 kW', data: [{ x: tMin, y: RULE.overload }, { x: tMax, y: RULE.overload }], borderColor: C.redSoft, borderDash: [5, 5], borderWidth: 1.2, pointRadius: 0, pointHoverRadius: 0 },
-        ],
-      },
-      options: {
-        responsive: true, maintainAspectRatio: false,
-        onClick: (_e, els) => { const el = els.find((x) => x.datasetIndex === 0); if (el) select(el.index, true); },
-        scales: {
-          x: { type: 'linear', min: tMin, max: tMax, grid: { color: C.grid, drawTicks: false }, border: { color: 'rgba(148,163,184,0.2)' }, ticks: { color: C.muted, padding: 6, callback: (v) => `${v}°`, font: { family: 'JetBrains Mono', size: 10.5 } }, title: { display: true, text: 'Ambient °C', color: C.muted, font: { size: 11 } } },
-          y: { min: 0, max: yMax, grid: { color: C.grid, drawTicks: false }, border: { display: false }, ticks: { color: C.muted, padding: 8, font: { family: 'JetBrains Mono', size: 10.5 } }, title: { display: true, text: 'kW', color: C.muted, font: { size: 11 } } },
-        },
-        plugins: {
-          legend: { display: false },
-          tooltip: { ...tooltipBase, filter: (i) => i.datasetIndex === 0, callbacks: { title: (items) => hourLabel(state.rows[items[0].dataIndex]?.timestamp), label: (i) => ` ${fmt(i.raw.x)} °C → ${fmt(i.raw.y)} kW` } },
-        },
-      },
-    };
-
-    const make = (key, sel, cfg) => {
-      const existing = state.charts[key];
-      if (existing) existing.destroy();
-      state.charts[key] = new Chart($(sel), cfg);
-    };
-    try {
-      make('load', '#chart-load', loadCfg);
-      make('soc', '#chart-soc', socCfg);
-      make('temp', '#chart-temp', tempCfg);
-    } catch (e) {
-      console.error(e);
-      toast(`Chart render error: ${e.message}`);
-    }
+    body.insertAdjacentHTML('beforeend', manualRowHTML(next, body.children.length + 1));
+    updateManualCount();
+    var input = body.lastElementChild.querySelector('input');
+    input.focus();
   }
 
-  /* ---------- CSV export / template ---------- */
+  /* ---------- CSV helpers ---------- */
   function csvCell(v) {
-    const s = v === null || v === undefined ? '' : String(v);
-    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    var s = v === null || v === undefined ? '' : String(v);
+    return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
   }
+  function csvBlobUrl(text) { return URL.createObjectURL(new Blob([text], { type: 'text/csv;charset=utf-8' })); }
   function download(name, text) {
-    const blob = new Blob([text], { type: 'text/csv;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
+    var url = csvBlobUrl(text);
+    var a = document.createElement('a');
     a.href = url; a.download = name;
     document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 2000);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
   }
   function exportResults() {
-    if (!state.rows.length) { toast('Run a forecast before exporting', 'warn'); return; }
-    const cols = ['timestamp', 'ambient_temp_c', 'humidity_pct', 'solar_irradiance_wm2', 'solar_generation_kw', 'predicted_demand_kw', 'grid_mode', 'battery_soc_pct', 'overload_alert', 'reasons'];
-    const lines = [cols.join(',')].concat(state.rows.map((r) => cols.map((c) => csvCell(c === 'reasons' ? (r.reasons || []).join('; ') : r[c])).join(',')));
-    const d = dateLabel(state.rows[0].timestamp) || 'forecast';
-    download(`gridpilot_forecast_${d}.csv`, lines.join('\n') + '\n');
-    toast('Forecast exported as CSV', 'ok', 2500);
+    if (!state.rows.length) { setRunStatus('Run a forecast before exporting.', true); return; }
+    var cols = ['timestamp', 'ambient_temp_c', 'humidity_pct', 'solar_irradiance_wm2', 'solar_generation_kw', 'predicted_demand_kw', 'grid_mode', 'battery_soc_pct', 'overload_alert', 'reasons'];
+    var lines = [cols.join(',')].concat(state.rows.map(function (r) {
+      return cols.map(function (c) { return csvCell(c === 'reasons' ? (r.reasons || []).join('; ') : r[c]); }).join(',');
+    }));
+    var d = (state.rows[0].timestamp || '').slice(0, 10) || 'forecast';
+    download('gridpilot_forecast_' + d + '.csv', lines.join('\n') + '\n');
   }
-  function downloadTemplate() {
-    let rows = state.sample;
-    if (!rows.length) {
-      const base = new Date(); base.setHours(0, 0, 0, 0);
-      rows = Array.from({ length: 24 }, (_, h) => ({ timestamp: fmtTs(new Date(base.getTime() + h * 3600000)), ambient_temp_c: '', humidity_pct: '', solar_irradiance_wm2: '' }));
+  var templateUrl = null;
+  function buildTemplate() {
+    var rows = state.sample.length ? state.sample : (function () {
+      var base = new Date(); base.setHours(0, 0, 0, 0);
+      var out = [];
+      for (var h = 0; h < 24; h++) out.push({ timestamp: fmtTs(new Date(base.getTime() + h * 3600000)), ambient_temp_c: '', humidity_pct: '', solar_irradiance_wm2: '' });
+      return out;
+    })();
+    var text = [COLS.join(',')].concat(rows.map(function (r) { return COLS.map(function (c) { return csvCell(r[c]); }).join(','); })).join('\n') + '\n';
+    if (templateUrl) URL.revokeObjectURL(templateUrl);
+    templateUrl = csvBlobUrl(text);
+    $('#tpl-link').href = templateUrl;
+  }
+
+  /* ---------- file input ---------- */
+  function setFile(file) {
+    var out = $('#file-name');
+    if (!file) { state.file = null; out.className = 'dz-file'; out.textContent = 'No file chosen. One .csv file, up to 10 MB.'; return; }
+    if (!/\.csv$/i.test(file.name)) {
+      state.file = null; out.className = 'dz-file has-file';
+      out.textContent = '“' + file.name + '” is not a .csv file. Choose a CSV file.';
+      return;
     }
-    const lines = [COLS.join(',')].concat(rows.map((r) => COLS.map((c) => csvCell(r[c])).join(',')));
-    download('gridpilot_template.csv', lines.join('\n') + '\n');
+    if (file.size > 10 * 1024 * 1024) {
+      state.file = null; out.className = 'dz-file has-file';
+      out.textContent = '“' + file.name + '” is larger than 10 MB.';
+      return;
+    }
+    state.file = file;
+    out.className = 'dz-file has-file';
+    out.textContent = 'Selected: ' + file.name + ' (' + (file.size / 1024).toFixed(1) + ' KB). Press Run forecast.';
+  }
+
+  /* ---------- tabs ---------- */
+  var TABS = ['upload', 'manual', 'sample'];
+  function setTab(k, focus) {
+    state.tab = k;
+    TABS.forEach(function (name, i) {
+      var t = $('#tab-' + name), p = $('#panel-' + name), on = i === k;
+      t.setAttribute('aria-selected', on ? 'true' : 'false');
+      t.tabIndex = on ? 0 : -1;
+      p.hidden = !on;
+    });
+    $('#manual-errors').hidden = k !== 1;
+    if (focus) $('#tab-' + TABS[k]).focus();
+    setRunStatus('');
+  }
+
+  function onRunClick() {
+    if (state.busy) return;
+    if (state.tab === 0) {
+      if (!state.file) { setRunStatus('Choose a CSV file first.', true); $('#btn-choose').focus(); return; }
+      var f = state.file;
+      run(function () { return postCsv(f); }, f.name, true);
+    } else if (state.tab === 1) {
+      var v = validateManual();
+      if (!v.rows.length) { setRunStatus('Enter at least one hour of data.', true); return; }
+      if (v.errors.length) {
+        setRunStatus('Fix ' + plural(v.errors.length, 'entry', 'entries') + ' before running.', true);
+        v.errors[0].input.focus();
+        return;
+      }
+      run(function () { return postForecast(v.rows); }, 'manual entry', true);
+    } else {
+      if (!state.sample.length) {
+        run(function () { return loadSample().then(function () { return postForecast(state.sample); }); }, 'sample day', true);
+      } else {
+        run(function () { return postForecast(state.sample); }, 'sample day', true);
+      }
+    }
+  }
+
+  /* ---------- load + errors ---------- */
+  function loadSample() {
+    return fetchJSON(API.sample).then(function (res) {
+      var rows = Array.isArray(res.data) ? res.data : [];
+      if (!rows.length) throw new Error('The sample endpoint returned no rows');
+      state.sample = rows;
+      fillManual(rows);
+      buildTemplate();
+      $('#sample-range').textContent = stamp(rows[0].timestamp) + ' to ' + stamp(rows[rows.length - 1].timestamp);
+      return rows;
+    });
+  }
+  function showLoadError(message) {
+    var h = $('#headline');
+    h.classList.add('is-loading');
+    h.textContent = 'Forecast unavailable';
+    $('#run-meta').textContent = 'The dashboard could not load a forecast.';
+    $('#notices').innerHTML = '<div class="notice notice-error"><div><p class="notice-title">Could not load the forecast</p><p>' +
+      esc(message) + '. Check that the API is running, then retry.</p></div><div class="notice-actions">' +
+      '<button type="button" class="btn btn-secondary" id="btn-retry">Retry</button></div></div>';
+    ['#signals-body', '#table-body'].forEach(function (s) {
+      var cols = s === '#table-body' ? 8 : 3;
+      $(s).innerHTML = '<tr><td colspan="' + cols + '" class="empty">No forecast loaded.</td></tr>';
+    });
+    ['#chart-forecast', '#chart-battery', '#chart-temp'].forEach(function (s) {
+      $(s).innerHTML = '<p class="chart-na">No forecast loaded.</p>';
+    });
+  }
+  function initialLoad() {
+    var h = $('#headline');
+    h.classList.add('is-loading');
+    h.textContent = 'Loading forecast…';
+    $('#run-meta').textContent = 'Fetching the sample day and running the model.';
+    $('#notices').innerHTML = '';
+    return loadSample()
+      .then(function (rows) { return run(function () { return postForecast(rows); }, 'sample day', false); })
+      .catch(function (e) { showLoadError(e.message); });
   }
 
   /* ---------- events ---------- */
   function bind() {
-    $('#play-btn').addEventListener('click', () => (state.playing ? stopPlay() : startPlay()));
-    $('#hour-range').addEventListener('input', (e) => select(+e.target.value, true));
-
-    const tl = $('#timeline');
-    tl.addEventListener('click', (e) => { const c = e.target.closest('.tl-cell'); if (c) { select(+c.dataset.i, true); showTip(c); } });
-    tl.addEventListener('mouseover', (e) => { const c = e.target.closest('.tl-cell'); if (c) showTip(c); });
-    tl.addEventListener('mouseleave', hideTip);
-    tl.addEventListener('focusin', (e) => { const c = e.target.closest('.tl-cell'); if (c) showTip(c); });
-    tl.addEventListener('focusout', hideTip);
-    tl.addEventListener('keydown', (e) => {
-      const c = e.target.closest('.tl-cell'); if (!c) return;
-      const i = +c.dataset.i;
-      let n = null;
-      if (e.key === 'ArrowRight') n = i + 1; else if (e.key === 'ArrowLeft') n = i - 1;
-      if (n !== null && n >= 0 && n < state.rows.length) { e.preventDefault(); select(n, true); tl.children[n].focus(); }
+    // notices, signals and table share the data-view convention
+    document.addEventListener('click', function (e) {
+      var v = e.target.closest('[data-view]');
+      if (v) {
+        stopPlay();
+        select(+v.getAttribute('data-view'), { announce: true });
+        if (v.closest('#notices')) {
+          var target = window.matchMedia('(min-width: 1200px)').matches ? $('.forecast-grid') : $('#inspector');
+          target.scrollIntoView({ behavior: reduceMotion.matches ? 'auto' : 'smooth', block: 'start' });
+          $('#inspector').focus({ preventScroll: true });
+        }
+        return;
+      }
+      var d = e.target.closest('[data-dismiss]');
+      if (d) {
+        state.dismissed[d.getAttribute('data-dismiss')] = true;
+        renderNotices();
+        var next = $('#notices [data-view]');
+        if (next) next.focus(); else $('#headline').focus();
+        return;
+      }
+      if (e.target.closest('#btn-retry')) initialLoad();
     });
-    window.addEventListener('scroll', hideTip, { passive: true });
 
-    $('#banners').addEventListener('click', (e) => {
-      const d = e.target.closest('[data-dismiss]');
-      if (d) { state.dismissed.add(d.dataset.dismiss); renderBanners(); return; }
-      const j = e.target.closest('[data-jump]');
-      if (j) { select(+j.dataset.jump, true); $('.strip').scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+    // hour strip: roving tabindex, arrow keys
+    var strip = $('#strip');
+    strip.addEventListener('click', function (e) {
+      var c = e.target.closest('.cell'); if (!c) return;
+      stopPlay(); select(+c.getAttribute('data-i'), { announce: true }); c.focus();
+    });
+    strip.addEventListener('keydown', function (e) {
+      var n = state.rows.length, i = state.sel, k = null;
+      if (e.key === 'ArrowRight' || e.key === 'ArrowDown') k = i + 1;
+      else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') k = i - 1;
+      else if (e.key === 'Home') k = 0;
+      else if (e.key === 'End') k = n - 1;
+      if (k === null || k < 0 || k >= n) return;
+      e.preventDefault(); stopPlay(); select(k, { announce: true });
+      var c = $('#cell-' + k); if (c) c.focus();
     });
 
-    const sig = $('#signals');
-    const sigGo = (e) => { const li = e.target.closest('li[data-i]'); if (li && +li.dataset.i >= 0) select(+li.dataset.i, true); };
-    sig.addEventListener('click', sigGo);
-    sig.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); sigGo(e); } });
-
-    $('#ftable-body').addEventListener('click', (e) => { const tr = e.target.closest('tr[data-i]'); if (tr) select(+tr.dataset.i, true); });
-    $('#btn-export').addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); exportResults(); });
+    $('#btn-prev').addEventListener('click', function () { stopPlay(); select(state.sel - 1, { announce: true }); });
+    $('#btn-next').addEventListener('click', function () { stopPlay(); select(state.sel + 1, { announce: true }); });
+    $('#btn-play').addEventListener('click', function () { if (state.playing) stopPlay(); else startPlay(); });
+    if (reduceMotion.addEventListener) reduceMotion.addEventListener('change', function () { if (reduceMotion.matches) stopPlay(); updatePlayUI(); });
 
     // tabs
-    const tabs = [$('#tab-upload'), $('#tab-manual')];
-    const panels = [$('#panel-upload'), $('#panel-manual')];
-    const setTab = (k) => {
-      tabs.forEach((t, i) => { const on = i === k; t.classList.toggle('is-active', on); t.setAttribute('aria-selected', on ? 'true' : 'false'); t.tabIndex = on ? 0 : -1; panels[i].hidden = !on; });
-    };
-    tabs.forEach((t, i) => {
-      t.addEventListener('click', () => setTab(i));
-      t.addEventListener('keydown', (e) => { if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') { e.preventDefault(); const k = (i + 1) % 2; setTab(k); tabs[k].focus(); } });
+    TABS.forEach(function (name, i) {
+      var t = $('#tab-' + name);
+      t.addEventListener('click', function () { setTab(i, false); });
+      t.addEventListener('keydown', function (e) {
+        var k = null;
+        if (e.key === 'ArrowRight') k = (i + 1) % TABS.length;
+        else if (e.key === 'ArrowLeft') k = (i - 1 + TABS.length) % TABS.length;
+        else if (e.key === 'Home') k = 0;
+        else if (e.key === 'End') k = TABS.length - 1;
+        if (k === null) return;
+        e.preventDefault(); setTab(k, true);
+      });
     });
 
-    // dropzone
-    const dz = $('#dropzone');
-    ['dragenter', 'dragover'].forEach((ev) => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.add('drag'); }));
-    ['dragleave', 'dragend'].forEach((ev) => dz.addEventListener(ev, () => dz.classList.remove('drag')));
-    dz.addEventListener('drop', (e) => { e.preventDefault(); dz.classList.remove('drag'); const f = e.dataTransfer?.files?.[0]; if (f) runCsv(f); });
-    dz.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('#file-input').click(); } });
-    $('#file-input').addEventListener('change', (e) => { const f = e.target.files?.[0]; if (f) runCsv(f); });
-    $('#btn-template').addEventListener('click', downloadTemplate);
+    // upload
+    var dz = $('#dropzone'), input = $('#file-input');
+    $('#btn-choose').addEventListener('click', function () { input.click(); });
+    input.addEventListener('change', function () { setFile(input.files && input.files[0]); });
+    ['dragenter', 'dragover'].forEach(function (ev) { dz.addEventListener(ev, function (e) { e.preventDefault(); dz.classList.add('is-over'); }); });
+    ['dragleave', 'dragend', 'drop'].forEach(function (ev) { dz.addEventListener(ev, function () { dz.classList.remove('is-over'); }); });
+    dz.addEventListener('drop', function (e) {
+      e.preventDefault();
+      var f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      if (f) setFile(f);
+    });
+    $('#tpl-link').addEventListener('click', function (e) {
+      if (!templateUrl) { e.preventDefault(); buildTemplate(); $('#tpl-link').click(); }
+    });
 
-    // manual
-    $('#manual-body').addEventListener('click', (e) => { const b = e.target.closest('.row-del'); if (b) { b.closest('tr').remove(); updateManualCount(); } });
-    $('#btn-add').addEventListener('click', addHour);
-    $('#btn-clear').addEventListener('click', () => { $('#manual-body').innerHTML = ''; updateManualCount(); toast('Manual table cleared. Add hours or load the sample.', 'ok', 2500); });
-    $('#btn-run').addEventListener('click', () => runForecast(readManual(), 'manual entry'));
-    $('#btn-sample').addEventListener('click', () => { setTab(1); loadSample(true); });
+    // manual entry
+    var body = $('#manual-body');
+    body.addEventListener('click', function (e) {
+      var b = e.target.closest('.row-del'); if (!b) return;
+      var tr = b.closest('tr'), next = tr.nextElementSibling || tr.previousElementSibling;
+      tr.remove(); renumber();
+      if (next) next.querySelector('.row-del').focus(); else $('#btn-add').focus();
+      if ($('#manual-errors').innerHTML) validateManual();
+    });
+    body.addEventListener('change', function (e) {
+      if (e.target.matches('input')) { checkInput(e.target); if ($('#manual-errors').innerHTML || e.target.getAttribute('aria-invalid')) validateManual(); }
+    });
+    $('#btn-add').addEventListener('click', addRow);
+    $('#btn-clear').addEventListener('click', function () { body.innerHTML = ''; $('#manual-errors').innerHTML = ''; updateManualCount(); $('#btn-add').focus(); setRunStatus('Table cleared. Add rows to enter your own hours.'); });
+    $('#btn-reset').addEventListener('click', function () { fillManual(state.sample); setRunStatus('Table refilled with the sample day.'); });
 
-    document.addEventListener('visibilitychange', () => { if (document.hidden && state.playing) { stopPlay(); state.resume = true; } else if (!document.hidden && state.resume) { state.resume = false; startPlay(); } });
+    $('#btn-run').addEventListener('click', onRunClick);
+    $('#btn-export').addEventListener('click', exportResults);
+
+    // polling pauses while the tab is hidden
+    document.addEventListener('visibilitychange', function () {
+      if (document.hidden) { stopPolling(); if (state.playing) { stopPlay(); state.resume = true; } }
+      else { loadLogs(); loadHealth(); startPolling(); if (state.resume) { state.resume = false; startPlay(); } }
+    });
+
+    // re-render charts when their width changes
+    var resizeT = null;
+    window.addEventListener('resize', function () {
+      clearTimeout(resizeT);
+      resizeT = setTimeout(function () {
+        var w = $('#chart-forecast').clientWidth;
+        if (state.rows.length && Math.abs(w - state.chartWidth) > 8) renderCharts();
+      }, 200);
+    });
   }
 
-  /* ---------- boot ---------- */
-  async function boot() {
+  function boot() {
     tickClock();
-    setInterval(tickClock, 1000);
+    setInterval(tickClock, 15000);
     bind();
     updatePlayUI();
+    buildTemplate();
     loadHealth();
-    setInterval(loadHealth, 30000);
     loadLogs();
-    setInterval(loadLogs, 10000);
-    await loadSample(true);
+    if (!document.hidden) startPolling();
+    initialLoad();
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
