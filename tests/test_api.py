@@ -145,13 +145,26 @@ class ApiTests(unittest.TestCase):
         self.assertTrue(any(e["level"] == "ALERT" for e in ev))
 
     def test_quickml_fallback_on_bad_endpoint(self):
-        os.environ["QUICKML_ENDPOINT_URL"] = "http://127.0.0.1:9/nothing"
+        fake = {"QUICKML_ENDPOINT_URL": "http://127.0.0.1:9/nothing", "QUICKML_ENDPOINT_KEY": "k",
+                "ZOHO_CLIENT_ID": "c", "ZOHO_CLIENT_SECRET": "s", "ZOHO_REFRESH_TOKEN": "r",
+                "ZOHO_ACCOUNTS_URL": "http://127.0.0.1:9"}
+        os.environ.update(fake)
         try:
             j = self.c.post("/api/predict", json={"data": self.sample()}).get_json()
             self.assertEqual(j["source"], "local")
             self.assertEqual(len(j["predictions"]), 24)
             ev = self.c.get("/api/logs").get_json()["events"]
             self.assertTrue(any(e["level"] == "WARN" and "QuickML" in e["message"] for e in ev))
+        finally:
+            for k in fake:
+                os.environ.pop(k, None)
+
+    def test_quickml_needs_key_and_oauth(self):
+        os.environ["QUICKML_ENDPOINT_URL"] = "http://127.0.0.1:9/nothing"
+        try:
+            self.assertFalse(quickml.is_configured())
+            j = self.c.post("/api/predict", json={"data": self.sample()}).get_json()
+            self.assertEqual(j["source"], "local")
         finally:
             os.environ.pop("QUICKML_ENDPOINT_URL", None)
 

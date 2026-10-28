@@ -18,6 +18,7 @@ import threading
 import time
 import urllib.parse
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 
 from .features import quickml_row_features
 
@@ -37,7 +38,8 @@ def _env(name, default=None):
 
 
 def is_configured():
-    return bool(_env("QUICKML_ENDPOINT_URL"))
+    """True only when every credential the endpoint requires is present."""
+    return bool(_env("QUICKML_ENDPOINT_URL") and _env("QUICKML_ENDPOINT_KEY") and _has_oauth())
 
 
 def _has_oauth():
@@ -159,8 +161,14 @@ def predict_quickml(rows):
     if not is_configured():
         raise QuickMLError("QuickML not configured")
     url = _env("QUICKML_ENDPOINT_URL")
-    out = []
-    for i in range(0, len(rows), BATCH):
-        chunk = rows[i:i + BATCH]
-        out.extend(parse_response(_post(url, build_payload(chunk)), len(chunk)))
-    return out
+    chunks = [rows[i:i + BATCH] for i in range(0, len(rows), BATCH)]
+    get_access_token()  # refresh once up front, not once per worker
+
+    def score(chunk):
+        return parse_response(_post(url, build_payload(chunk)), len(chunk))
+
+    # One row per request, so fan out; map() keeps the input order.
+    workers = max(1, min(int(_env("QUICKML_WORKERS", "16")), len(chunks)))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        results = list(pool.map(score, chunks))
+    return [p for chunk_preds in results for p in chunk_preds]

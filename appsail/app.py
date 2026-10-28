@@ -53,12 +53,16 @@ log_event("INFO", "GridPilot started: local model %s (validation RMSE %.2f kW), 
 
 
 # ---------------------------------------------------------------- helpers
-def predict_clean_rows(rows):
-    """Returns (predictions, source). QuickML first if configured, local fallback."""
+def predict_clean_rows(rows, purpose="forecast"):
+    """Returns (predictions, source). QuickML first if configured, local fallback.
+    /api/predict can be pinned to the local model with PREDICT_SOURCE=local."""
     if not rows:
         return [], "local"
     local = None
-    if quickml.is_configured():
+    use_quickml = quickml.is_configured()
+    if purpose == "predict" and os.environ.get("PREDICT_SOURCE", "quickml") == "local":
+        use_quickml = False
+    if use_quickml:
         try:
             preds = quickml.predict_quickml(rows)
             return [float(p) for p in preds], "quickml"
@@ -151,7 +155,7 @@ def predict():
     rows, report = clean_predict_rows(raw)
     for w in report["warnings"]:
         log_event("WARN", "predict cleaning: " + w)
-    preds, source = predict_clean_rows(rows)
+    preds, source = predict_clean_rows(rows, purpose="predict")
     preds = _safe(preds, rows)
     log_event("INFO", "predict: %d row(s) via %s model" % (len(preds), source))
     return jsonify({"predictions": [round(p, 4) for p in preds], "source": source})
